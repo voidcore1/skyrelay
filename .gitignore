@@ -1,0 +1,40 @@
+# Local reference material (never committed)
+/*.pdf
+/*.xlsx
+/*.docx
+/reports/
+/research_notes/
+/reference/
+
+# Editor local files
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Build output
+/build/
+/out/
+/install/
+CMakeUserPresets.json
+compile_commands.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Node
+node_modules/
+dist/
+
+# Logs and recordings
+*.tlog
+*.mcap
+*.ulg
+logs/
+
+# Secrets (signing keys, DDS-Security certs)
+*.key
+*.pem
+secrets/
