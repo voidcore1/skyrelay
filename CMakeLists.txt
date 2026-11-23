@@ -11,7 +11,9 @@ include(SkyRelayWarnings)
 
 find_package(GTest CONFIG REQUIRED)
 find_package(CycloneDDS-CXX CONFIG REQUIRED)
-skyrelay_system_includes(GTest::gtest GTest::gtest_main GTest::gmock
+find_package(boost_asio CONFIG REQUIRED)
+find_package(Threads REQUIRED)
+skyrelay_system_includes(Boost::asio GTest::gtest GTest::gtest_main GTest::gmock
                          CycloneDDS-CXX::ddscxx CycloneDDS::ddsc)
 
 enable_testing()
