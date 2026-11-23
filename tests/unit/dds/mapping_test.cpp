@@ -130,3 +130,17 @@ TEST(Mapping, EnumConversionsCoverEveryValue) {
     EXPECT_EQ(static_cast<int>(to_idl(1, d, {}, 0).mode()), m);
   }
 }
+
+TEST(Mapping, OverlongStringsAreTruncatedToIdlBounds) {
+  InfoData d;
+  d.firmware_version = std::string(40, 'x');
+  auto s = to_idl(1, d, {}, 0);
+  EXPECT_EQ(s.firmware_version(), std::string(32, 'x'));
+  EXPECT_TRUE(s.header().valid_mask() & valid::VehicleInfo::firmware_version);
+
+  StateData st;
+  st.mode = ModeInfo{FlightMode::Hold, std::string(40, 'y')};
+  auto v = to_idl(1, st, {}, 0);
+  EXPECT_EQ(v.mode_raw(), std::string(32, 'y'));
+  EXPECT_TRUE(v.header().valid_mask() & valid::VehicleState::mode_raw);
+}

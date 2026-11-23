@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <string>
 #include <type_traits>
 
 #include "skyrelay/common/version.hpp"
@@ -99,6 +100,11 @@ v1::LinkState conv(mav::LinkState s) {
   return v1::LinkState::LINK_LOST;
 }
 
+// Bounded IDL strings fail serialization when too long, so cut to the bound.
+std::string bounded(const std::string& v, std::size_t max) {
+  return v.substr(0, max);
+}
+
 v1::Header header(const vd::Stamp& st, uint64_t seq, uint64_t mask) {
   v1::Header h;
   h.seq(seq);
@@ -141,10 +147,10 @@ v1::VehicleInfo to_idl(uint32_t vid, const vd::InfoData& d, vd::Stamp st,
   s.mav_compid(d.mav_compid);
   m.set(bit::autopilot | bit::vehicle_type | bit::mav_sysid | bit::mav_compid);
   if (m.opt(bit::firmware_version, d.firmware_version)) {
-    s.firmware_version(*d.firmware_version);
+    s.firmware_version(bounded(*d.firmware_version, 32));
   }
   if (m.opt(bit::capabilities, d.capabilities)) s.capabilities(*d.capabilities);
-  s.contract_version(std::string(kContractVersion));
+  s.contract_version(bounded(std::string(kContractVersion), 16));
   m.set(bit::contract_version);
   s.header(header(st, seq, m.bits));
   return s;
@@ -161,7 +167,7 @@ v1::VehicleState to_idl(uint32_t vid, const vd::StateData& d, vd::Stamp st,
     s.mode(conv(d.mode->mode));
     // The raw name is only "available" when the autopilot gave one.
     if (!d.mode->raw.empty()) {
-      s.mode_raw(d.mode->raw);
+      s.mode_raw(bounded(d.mode->raw, 32));
       m.set(bit::mode_raw);
     }
   }

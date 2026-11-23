@@ -19,3 +19,4 @@ target_compile_features(skyrelay_dds PUBLIC cxx_std_20)
 skyrelay_enable_warnings(skyrelay_dds)
 target_link_libraries(skyrelay_dds PUBLIC skyrelay::mavlink skyrelay_idl CycloneDDS-CXX::ddscxx
   CycloneDDS::ddsc nlohmann_json::nlohmann_json)
+target_link_libraries(skyrelay_dds PRIVATE spdlog::spdlog)

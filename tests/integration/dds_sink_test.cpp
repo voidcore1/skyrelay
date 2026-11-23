@@ -131,3 +131,65 @@ TEST(DdsSink, LateJoinerGetsLatchedLinkStatus) {
   EXPECT_EQ(got[0].vehicle_id(), 8u);
   EXPECT_EQ(got[0].state(), v1::LinkState::LINK_CONNECTED);
 }
+
+TEST(DdsSink, ConcurrentVehiclesKeepPerVehicleSeq) {
+  auto c = cfg("sink-conc");
+  auto dp = open_participant(c);
+  auto qos = reader_qos(Profile::TelemetryFast);
+  qos << ::dds::core::policy::History::KeepAll();
+  ::dds::sub::Subscriber sub = make_subscriber(dp, c);
+  ::dds::topic::Topic<v1::Pose> topic(dp, std::string(kTopicPose),
+                                      topic_qos(Profile::TelemetryFast));
+  ::dds::sub::DataReader<v1::Pose> reader(sub, topic, qos);
+  DdsTelemetrySink sink(dp, c);
+  wait_for_match(
+      [&] { return ::dds::sub::matched_publications(reader).size() > 0; });
+
+  constexpr int kPer = 200;
+  std::vector<std::thread> ts;
+  // vehicles 1-4 have one thread each; vehicle 9 is shared by two.
+  for (uint32_t v : {1u, 2u, 3u, 4u, 9u, 9u}) {
+    ts.emplace_back([&sink, v] {
+      skyrelay::vehicle::PoseData d;
+      d.lat_deg = 1;
+      for (int i = 0; i < kPer; ++i) sink.pose(v, d, {});
+    });
+  }
+  for (auto& t : ts) t.join();
+  EXPECT_EQ(sink.dropped_samples(kTopicPose), 0u);
+
+  std::map<uint32_t, std::vector<uint64_t>> seqs;
+  size_t total = 0;
+  const auto end = std::chrono::steady_clock::now() + 5s;
+  while (total < 6u * kPer && std::chrono::steady_clock::now() < end) {
+    for (const auto& s : reader.take()) {
+      if (!s.info().valid()) continue;
+      seqs[s.data().vehicle_id()].push_back(s.data().header().seq());
+      ++total;
+    }
+    std::this_thread::sleep_for(10ms);
+  }
+  for (const auto& [v, list] : seqs) {
+    for (size_t i = 1; i < list.size(); ++i) {
+      EXPECT_LT(list[i - 1], list[i]) << "vehicle " << v;
+    }
+  }
+  EXPECT_EQ(seqs[1].size(), static_cast<size_t>(kPer));
+  EXPECT_EQ(seqs[9].size(), static_cast<size_t>(2 * kPer));
+  EXPECT_EQ(seqs[9].back(), static_cast<uint64_t>(2 * kPer - 1));
+}
+
+// Closing the participant closes its writers, so every later write throws
+// inside the sink; none of that may reach the caller.
+TEST(DdsSink, WriteFailureDoesNotThrow) {
+  auto c = cfg("sink-fail");
+  auto dp = open_participant(c);
+  DdsTelemetrySink sink(dp, c);
+  dp.close();
+  EXPECT_NO_THROW(sink.pose(1, {}, {}));
+  EXPECT_NO_THROW(sink.vehicle_info(1, {}, {}));
+  EXPECT_NO_THROW(sink.vehicle_state(1, {}, {}));
+  EXPECT_NO_THROW(sink.health(1, {}, {}));
+  EXPECT_NO_THROW(sink.link_status(1, {}, {}));
+  EXPECT_EQ(sink.dropped_samples(kTopicPose), 1u);
+}
