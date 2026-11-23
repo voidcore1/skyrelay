@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 
+#include <limits>
+
 #include "skyrelay/mav/setup_sequence.hpp"
 
 using namespace skyrelay;
@@ -78,4 +80,36 @@ TEST(SetupSequence, TimeoutCountsAsFailure) {
   EXPECT_FALSE(r);
   EXPECT_TRUE(s.done());
   EXPECT_EQ(s.failed_msg_ids(), (std::vector<uint32_t>{33}));
+}
+
+TEST(SetupSequence, RejectsInvalidRates) {
+  const double nan = std::numeric_limits<double>::quiet_NaN();
+  SetupSequence s({{33, 0.0}, {31, -5.0}, {24, nan}, {2, 20.0}}, 1, 1, at(0));
+  auto a = s.poll(at(0));
+  ASSERT_TRUE(a);
+  EXPECT_EQ(a->spec.command, 512);
+  EXPECT_FLOAT_EQ(a->spec.params[0], 148.f);
+  s.on_ack(ack(512, 0), 245, at(10));
+
+  auto b = s.poll(at(10));
+  ASSERT_TRUE(b);
+  EXPECT_EQ(b->spec.command, 511);
+  EXPECT_FLOAT_EQ(b->spec.params[0], 2.f);
+  EXPECT_FLOAT_EQ(b->spec.params[1], 50000.f);
+  EXPECT_FALSE(s.done());
+  s.on_ack(ack(511, 0), 245, at(20));
+
+  EXPECT_TRUE(s.done());
+  EXPECT_FALSE(s.poll(at(30)));
+  EXPECT_EQ(s.failed_msg_ids(), (std::vector<uint32_t>{33, 31, 24}));
+}
+
+TEST(SetupSequence, ClampsVeryHighRateToOneMicrosecond) {
+  SetupSequence s({{33, 5e6}}, 1, 1, at(0));
+  s.poll(at(0));
+  s.on_ack(ack(512, 0), 245, at(10));
+  auto b = s.poll(at(10));
+  ASSERT_TRUE(b);
+  EXPECT_EQ(b->spec.command, 511);
+  EXPECT_FLOAT_EQ(b->spec.params[1], 1.f);
 }

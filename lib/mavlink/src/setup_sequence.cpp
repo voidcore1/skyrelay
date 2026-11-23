@@ -1,5 +1,6 @@
 #include "skyrelay/mav/setup_sequence.hpp"
 
+#include <algorithm>
 #include <cmath>
 
 namespace skyrelay::mav {
@@ -19,7 +20,16 @@ SetupSequence::SetupSequence(std::vector<IntervalRequest> intervals,
                    target_sys, target_comp},
        kAutopilotVersion});
   for (const auto& i : intervals) {
-    const float us = static_cast<float>(std::llround(1e6 / i.hz));
+    // A rate that is not a positive number can't be turned into an interval,
+    // and 0 or a negative value would mean "default" or "disable" to the
+    // autopilot. Count it as failed and never send it.
+    if (!std::isfinite(i.hz) || i.hz <= 0.0) {
+      failed_.push_back(i.msg_id);
+      continue;
+    }
+    // At least 1 us: an interval of 0 would also mean "default rate".
+    const float us =
+        static_cast<float>(std::max<long long>(1, std::llround(1e6 / i.hz)));
     steps_.push_back({CommandSpec{kSetMessageInterval,
                                   {static_cast<float>(i.msg_id), us, 0, 0, 0,
                                    0, 0},
