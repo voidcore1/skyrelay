@@ -52,7 +52,7 @@ SkyRelay is a vendor-neutral data plane between MAVLink drones and DDS. It lets 
 ### Anti-goals (failure even if it "works")
 
 - Numbers that can't be reproduced by someone else from the repo.
-- A demo that only runs on the author's machine.
+- A demo that only runs on my machine.
 - Autopilot-specific types or concepts leaking into the IDL.
 - Security bolted on at the end, or off by default.
 - Growing into "yet another ground station".
@@ -220,7 +220,7 @@ VehicleSession (one per configured vehicle, own thread + io_context)
 
 ### QoS profiles
 
-Defined once in `libskyrelay-dds`, documented in `docs/contract.md`. Also shipped as DDS-XML if Cyclone 11.1 supports XML QoS profiles; the builder verifies.
+Defined once in `libskyrelay-dds`, documented in `docs/contract.md`. Also shipped as DDS-XML if Cyclone 11.1 supports XML QoS profiles; confirmed in M0.
 
 | Profile | Reliability | History | Durability | Other |
 |---|---|---|---|---|
@@ -298,7 +298,7 @@ An `AutopilotAdapter` interface isolates every per-autopilot difference:
 Selection:
 - The adapter is chosen from the `HEARTBEAT` autopilot field, and `AUTOPILOT_VERSION` refines the firmware version.
 - Unknown autopilots get a `GenericMavlinkAdapter` that supports telemetry and only the command subset expressible through standard `MAV_CMD`s.
-- The builder verifies exact per-autopilot command sequences against SITL and records them in `docs/autopilots.md`.
+- Exact per-autopilot command sequences are verified against SITL in M2 and recorded in `docs/autopilots.md`.
 
 ### MAVLink 2 signing
 
@@ -373,7 +373,7 @@ Selection:
 
 **Network profiles** (`bench/profiles/*.yaml`):
 - Applied by a per-vehicle sidecar sharing the vehicle container's network namespace.
-- netem only shapes egress, so both directions are shaped using an IFB device or a sidecar on each side. The builder chooses the mechanism and records it in an ADR.
+- netem only shapes egress, so both directions are shaped using an IFB device or a sidecar on each side. The mechanism is picked in M4 and recorded in an ADR.
 
 | Profile | Delay | Jitter | Loss |
 |---|---|---|---|
@@ -399,7 +399,7 @@ Selection:
 
 **`skyrelay-video` pipeline (per camera vehicle):**
 1. Receive RTP H.264, depayload and parse, **without re-encoding** (latency and licence).
-2. Each frame takes its capture timestamp from the RTP timestamp, mapped to wall clock via RTCP sender reports or the sim's frame time; the builder determines which is available.
+2. Each frame takes its capture timestamp from the RTP timestamp, mapped to wall clock via RTCP sender reports or the sim's frame time; the M5 spike settles which one is available.
 3. Look up the DomainState at that time from a short history buffer of `pose` and `payload_state` (interpolated).
 4. Compute the ground footprint: flat-earth intersection at home elevation in v1, with a DEM hook for later.
 5. Build a ST 0601 Local Set (subset below), and insert an SEI user-data timestamp into the H.264 stream.
@@ -463,7 +463,7 @@ Selection:
 - **Offline maps.**
   - A regional Protomaps v4 PMTiles extract, with self-hosted glyphs and sprites, served by the gateway.
   - OSM attribution is shown on the map.
-  - Satellite imagery is out of scope: no openly licensed, offline-redistributable source fits. Terrain tiles (Mapterhorn) are optional; the builder verifies the licence before including them.
+  - Satellite imagery is out of scope: no openly licensed, offline-redistributable source fits. Terrain tiles (Mapterhorn) are optional; their licence gets checked before they go in.
 - **Demo region.** One configurable region; the default extract is ≤ 50 MB.
 
 ## 13. Simulation environments
@@ -577,9 +577,9 @@ Each milestone ends with a tagged release, a short demo recording, updated bench
 | Browser clock skew pollutes HUD numbers | Misleading demo numbers | HUD labelled indicative. Authoritative numbers from `bench/` only |
 | Scope creep toward a ground station | Time sink | Non-goals list. Each UI feature must serve the demo or the contract |
 
-## 18. Decisions settled after design review
+## 18. Decisions from design review
 
-A builder-perspective review raised six questions. Each was settled by the design author:
+Reviewing the first draft as if I had to build straight from it turned up six gaps. How each one was resolved:
 
 1. **Command authority.**
    - Authority is per command partition (`<fleet>.cmd`, `<fleet>.cmd.kill`), enforced by DDS-Security permissions and checked again by the bridge.
@@ -598,9 +598,9 @@ A builder-perspective review raised six questions. Each was settled by the desig
 5. **GPL and bundles.** The simulation environment is outside the product. There are two bundles, runtime (no GPL) and sim (with notices and sources), and `skyrelay-video` never encodes. (§3, §11, §15)
 6. **When security arrives.** Security moves before benchmarks (M3 ↔ M4), and pre-M3 releases are loopback-only insecure previews. (§16)
 
-## 19. Left to the builder
+## 19. Decided during implementation
 
-These may be decided during implementation, each recorded in an ADR:
+These get decided while building, each recorded in an ADR:
 - Exact per-autopilot command sequences (verified in SITL and documented).
 - The two-way netem mechanism.
 - Whether Cyclone XML QoS profiles are usable.
