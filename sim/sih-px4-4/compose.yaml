@@ -1,0 +1,32 @@
+# Four headless PX4 v1.17.0 SIH quadrotors, one container (and network
+# namespace) each. Instance N has MAVLink sysid N+1 and sends its offboard
+# link to the host on UDP 14540+N.
+
+x-px4: &px4
+  image: skyrelay/px4-sitl:1.17.0
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+  networks: [skyrelay-sim]
+  restart: "no"
+  stop_grace_period: 3s
+
+services:
+  px4-0:
+    <<: *px4
+    # Only one service builds, so the four don't race to export the same tag.
+    build:
+      context: ../px4-sitl
+    environment: {INSTANCE: "0"}
+  px4-1:
+    <<: *px4
+    environment: {INSTANCE: "1"}
+  px4-2:
+    <<: *px4
+    environment: {INSTANCE: "2"}
+  px4-3:
+    <<: *px4
+    environment: {INSTANCE: "3"}
+
+networks:
+  skyrelay-sim:
+    name: skyrelay-sim
