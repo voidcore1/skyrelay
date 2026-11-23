@@ -50,6 +50,16 @@ class Report(unittest.TestCase):
             out = Path(tmp) / "report.md"
             self.assertEqual(latency.main([str(csv), "--out", str(out), "--gate-p99-ms", "100"]), 1)
 
+    def test_negative_latency_counted_and_fails_gate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rows = [(1, i, 1_000_000, 1_000_000 + 1_000_000) for i in range(99)]
+            rows.append((1, 99, 1_000_000, 500_000))
+            csv = write_csv(tmp, rows)
+            out = Path(tmp) / "report.md"
+            self.assertEqual(latency.load(csv)[1].negative, 1)
+            self.assertEqual(latency.main([str(csv), "--out", str(out), "--gate-p99-ms", "100"]), 1)
+            self.assertIn("Negative latency samples: 1", out.read_text())
+
     def test_seq_gaps_counted(self):
         with tempfile.TemporaryDirectory() as tmp:
             rows = [(1, 0, 100, 1_000_100), (1, 1, 100, 1_000_100), (1, 3, 100, 1_000_100),

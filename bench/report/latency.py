@@ -29,12 +29,15 @@ def nearest_rank(values, q):
 class VehicleStats:
     latencies_ms: list = field(default_factory=list)
     gaps: int = 0
+    negative: int = 0
     last_seq: int | None = None
 
     def add(self, seq, latency_ms):
         if self.last_seq is not None and seq > self.last_seq:
             self.gaps += seq - self.last_seq - 1
         self.last_seq = seq
+        if latency_ms < 0:
+            self.negative += 1
         self.latencies_ms.append(latency_ms)
 
 
@@ -76,7 +79,11 @@ def render(stats, gate_ms):
         verdict = f"FAIL: overall p99 {p99:.3f} ms exceeds {gate_ms:g} ms"
     else:
         verdict = f"PASS: overall p99 {p99:.3f} ms is within {gate_ms:g} ms"
+    negative = sum(s.negative for s in stats.values())
+    if gate_ms is not None and negative and not verdict.startswith("FAIL"):
+        verdict = f"FAIL: {negative} negative latency sample(s)"
     text = "\n".join(lines) + "\n"
+    text += f"\nNegative latency samples: {negative}\n"
     if verdict:
         text += f"\nGate: {verdict}\n"
     return text, verdict is not None and verdict.startswith("FAIL")

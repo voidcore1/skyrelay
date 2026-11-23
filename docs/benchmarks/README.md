@@ -16,6 +16,12 @@ end-to-end, sensor-to-consumer figure. The method that captures the vehicle side
 (design §10) arrives with the link emulators in M4. Until then, read these
 numbers as the cost the bridge and DDS add, and nothing more.
 
+Both timestamps are `CLOCK_REALTIME` on one host. A negative latency would mean
+the clocks disagree, so such samples are counted, printed in the report, and fail
+the gate. All samples delivered in one `take()` batch share one probe timestamp,
+which can only overstate their latency. The seq-gap column counts drops the
+probe saw between its first and last received sample of each vehicle.
+
 The percentile is nearest-rank everywhere: `sorted[ceil(q·n) − 1]`.
 
 ## Running it
@@ -30,7 +36,7 @@ bench/run.sh m1-clean
 the four-vehicle simulation, starts the bridge, waits for all four links, records
 `pose` for 60 s, prints the report, and tears everything down. Its exit code is
 the report's: 1 if the overall p99 is above 100 ms or nothing was received.
-Results land in `bench/results/<UTC date>-<scenario>/` (git-ignored): the CSV,
+Results land in `bench/results/<UTC date>T<HHMMSS>Z-<scenario>/` (git-ignored): the CSV,
 `report.md`, `host.txt` and the bridge log.
 
 ## Published results

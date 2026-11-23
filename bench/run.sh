@@ -7,7 +7,7 @@
 # Binaries come from the dev preset (build/dev). Set BUILD_DIR to use another
 # build tree, for example BUILD_DIR=build/asan. Build first:
 #   cmake --preset dev && cmake --build --preset dev
-# Results go to bench/results/<UTC date>-<scenario>/ (git-ignored).
+# Results go to bench/results/<UTC date>T<HHMMSS>Z-<scenario>/ (git-ignored).
 set -euo pipefail
 
 if [[ $# -ne 1 ]]; then
@@ -29,7 +29,7 @@ for b in "$bridge_bin" "$probe_bin"; do
   [[ -x $b ]] || { echo "missing $b; build it first (see header of bench/run.sh)" >&2; exit 2; }
 done
 
-results="$root/bench/results/$(date -u +%Y-%m-%d)-$scenario"
+results="$root/bench/results/$(date -u +%Y-%m-%dT%H%M%SZ)-$scenario"
 mkdir -p "$results"
 compose=(docker compose -f "$root/$SIM_COMPOSE")
 
@@ -56,7 +56,7 @@ host_info() {
     echo "ram: $(awk '/MemTotal/ {printf "%.1f GiB", $2/1048576}' /proc/meminfo)"
     echo "kernel: $(uname -sr)"
     echo "docker: $(docker --version)"
-    echo "git_commit: $(git -C "$root" rev-parse HEAD)$(git -C "$root" diff --quiet HEAD -- || echo ' (dirty)')"
+    echo "git_commit: $(git -C "$root" rev-parse HEAD)$([[ -z $(git -C "$root" status --porcelain) ]] || echo ' (dirty)')"
     echo "px4: $(sed -n 's/^ARG PX4_VERSION=//p' "$root/sim/px4-sitl/Dockerfile")"
   } >"$results/host.txt"
 }
