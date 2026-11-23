@@ -52,7 +52,7 @@ Autopilot autopilot_from(uint8_t mav_autopilot) {
   }
 }
 
-GnssFix gnss_fix_from(uint8_t fix_type) {
+std::optional<GnssFix> gnss_fix_from(uint8_t fix_type) {
   switch (fix_type) {
     case GPS_FIX_TYPE_NO_GPS:
     case GPS_FIX_TYPE_NO_FIX:
@@ -70,11 +70,11 @@ GnssFix gnss_fix_from(uint8_t fix_type) {
     case GPS_FIX_TYPE_RTK_FIXED:
       return GnssFix::RtkFixed;
     default:
-      return GnssFix::Unknown;
+      return std::nullopt;
   }
 }
 
-LandedState landed_from(uint8_t s) {
+std::optional<LandedState> landed_from(uint8_t s) {
   switch (s) {
     case MAV_LANDED_STATE_ON_GROUND:
       return LandedState::OnGround;
@@ -85,7 +85,7 @@ LandedState landed_from(uint8_t s) {
     case MAV_LANDED_STATE_LANDING:
       return LandedState::Landing;
     default:
-      return LandedState::Unknown;
+      return std::nullopt;
   }
 }
 
@@ -101,9 +101,15 @@ Changed VehicleModel::apply(const mavlink_message_t& msg) {
   state_discrete_ = false;
   health_discrete_ = false;
 
-  // Once we know which system is the vehicle, nothing from another one
-  // (a second vehicle on the same link, say) may leak into this model.
-  if (adapter_ && msg.sysid != info_.mav_sysid) return Changed::None;
+  // Until the first autopilot HEARTBEAT locks the model to a vehicle, nothing
+  // else is applied, so another system's telemetry cannot leak in. After the
+  // lock only the locked (sysid, compid) is used; payload components such as
+  // a camera or companion share the sysid but are ignored for now.
+  if (!adapter_ && msg.msgid != MAVLINK_MSG_ID_HEARTBEAT) return Changed::None;
+  if (adapter_ && (msg.sysid != info_.mav_sysid ||
+                   msg.compid != info_.mav_compid)) {
+    return Changed::None;
+  }
 
   switch (msg.msgid) {
     case MAVLINK_MSG_ID_HEARTBEAT:
@@ -237,7 +243,7 @@ Changed VehicleModel::on_gps_raw(const mavlink_message_t& msg) {
   health_.gnss_hdop =
       g.eph == UINT16_MAX ? kNaNf : static_cast<float>(g.eph) / 100.0f;
   health_discrete_ |=
-      assign(health_.gnss_fix, std::optional<GnssFix>{gnss_fix_from(g.fix_type)});
+      assign(health_.gnss_fix, gnss_fix_from(g.fix_type));
   std::optional<uint8_t> sats;
   if (g.satellites_visible != 255) sats = g.satellites_visible;
   health_discrete_ |= assign(health_.gnss_satellites, sats);
@@ -248,7 +254,7 @@ Changed VehicleModel::on_extended_sys_state(const mavlink_message_t& msg) {
   mavlink_extended_sys_state_t e;
   mavlink_msg_extended_sys_state_decode(&msg, &e);
   state_discrete_ |= assign(state_.landed,
-                            std::optional<LandedState>{landed_from(e.landed_state)});
+                            landed_from(e.landed_state));
   return Changed::State;
 }
 

@@ -81,10 +81,17 @@ mavlink_message_t system_time(uint64_t unix_us, uint32_t boot_ms) {
   return m;
 }
 
+// A model already locked to the vehicle (sysid 1, compid 1).
+VehicleModel locked() {
+  VehicleModel v;
+  v.apply(px4_heartbeat(0));
+  return v;
+}
+
 }  // namespace
 
 TEST(VehicleModel, DecodesGlobalPositionInt) {
-  VehicleModel v;
+  auto v = locked();
   auto c = v.apply(gpi(473977420, 85455940, 488123, 10123, 150, -20, 5, 9000));
   EXPECT_EQ(c, Changed::Pose);
   const auto& p = v.pose();
@@ -101,13 +108,13 @@ TEST(VehicleModel, DecodesGlobalPositionInt) {
 }
 
 TEST(VehicleModel, HeadingSentinelIsNaN) {
-  VehicleModel v;
+  auto v = locked();
   v.apply(gpi(1, 2, 3, 4, 0, 0, 0, UINT16_MAX));
   EXPECT_TRUE(std::isnan(v.pose().heading_deg));
 }
 
 TEST(VehicleModel, AttitudeQuaternion) {
-  VehicleModel v;
+  auto v = locked();
   mavlink_attitude_quaternion_t q{};
   q.time_boot_ms = 777;
   q.q1 = 1.0f;
@@ -125,7 +132,7 @@ TEST(VehicleModel, AttitudeQuaternion) {
 }
 
 TEST(VehicleModel, DecodesSysStatus) {
-  VehicleModel v;
+  auto v = locked();
   auto c = v.apply(sys_status(0xFF, 0xFF, 0x0F, 12600, 1550, 80));
   EXPECT_EQ(c, Changed::Health);
   EXPECT_FLOAT_EQ(v.health().battery_voltage_v, 12.6f);
@@ -137,7 +144,7 @@ TEST(VehicleModel, DecodesSysStatus) {
 }
 
 TEST(VehicleModel, SysStatusSentinels) {
-  VehicleModel v;
+  auto v = locked();
   v.apply(sys_status(0, 0, 0, UINT16_MAX, -1, -1));
   EXPECT_TRUE(std::isnan(v.health().battery_voltage_v));
   EXPECT_TRUE(std::isnan(v.health().battery_current_a));
@@ -145,7 +152,7 @@ TEST(VehicleModel, SysStatusSentinels) {
 }
 
 TEST(VehicleModel, SysStatusSentinelClearsEarlierValue) {
-  VehicleModel v;
+  auto v = locked();
   v.apply(sys_status(0, 0, 0, 12600, 100, 50));
   v.apply(sys_status(0, 0, 0, UINT16_MAX, -1, -1));
   EXPECT_TRUE(std::isnan(v.health().battery_voltage_v));
@@ -153,7 +160,7 @@ TEST(VehicleModel, SysStatusSentinelClearsEarlierValue) {
 }
 
 TEST(VehicleModel, EstimatorOkNeedsAhrsEnabledAndHealthy) {
-  VehicleModel v;
+  auto v = locked();
   const uint32_t ahrs = MAV_SYS_STATUS_AHRS;
   v.apply(sys_status(ahrs, ahrs, ahrs, 0, 0, 0));
   EXPECT_EQ(v.health().estimator_ok, true);
@@ -164,7 +171,7 @@ TEST(VehicleModel, EstimatorOkNeedsAhrsEnabledAndHealthy) {
 }
 
 TEST(VehicleModel, GpsSentinels) {
-  VehicleModel v;
+  auto v = locked();
   auto c = v.apply(gps(3, UINT16_MAX, 255));
   EXPECT_EQ(c, Changed::Health);
   EXPECT_TRUE(std::isnan(v.health().gnss_hdop));
@@ -173,7 +180,7 @@ TEST(VehicleModel, GpsSentinels) {
 }
 
 TEST(VehicleModel, GpsValuesAndFixMapping) {
-  VehicleModel v;
+  auto v = locked();
   v.apply(gps(6, 120, 14));
   EXPECT_FLOAT_EQ(v.health().gnss_hdop, 1.2f);
   EXPECT_EQ(v.health().gnss_satellites, 14);
@@ -186,10 +193,12 @@ TEST(VehicleModel, GpsValuesAndFixMapping) {
   EXPECT_EQ(v.health().gnss_fix, GnssFix::Dgps);
   v.apply(gps(5, 0, 0));
   EXPECT_EQ(v.health().gnss_fix, GnssFix::RtkFloat);
+  v.apply(gps(9, 0, 0));
+  EXPECT_FALSE(v.health().gnss_fix.has_value());
 }
 
 TEST(VehicleModel, BatteryTimeRemaining) {
-  VehicleModel v;
+  auto v = locked();
   mavlink_battery_status_t b{};
   b.time_remaining = 600;
   mavlink_message_t m;
@@ -203,14 +212,14 @@ TEST(VehicleModel, BatteryTimeRemaining) {
 }
 
 TEST(VehicleModel, SourceTimeFromSystemTime) {
-  VehicleModel v;
+  auto v = locked();
   EXPECT_EQ(v.apply(system_time(1'700'000'000'000'000ull, 10'000)),
             Changed::Time);
   EXPECT_EQ(v.source_time_us(12'000), 1'700'000'002'000'000ull);
 }
 
 TEST(VehicleModel, SourceTimeUnknownIsZero) {
-  VehicleModel v;
+  auto v = locked();
   EXPECT_EQ(v.source_time_us(12'000), 0u);
   v.apply(system_time(0, 10'000));
   EXPECT_EQ(v.source_time_us(12'000), 0u);
@@ -266,7 +275,7 @@ TEST(VehicleModel, GcsAndOtherComponentHeartbeatsDoNotSelectAdapter) {
 }
 
 TEST(VehicleModel, ExtendedSysStateLanded) {
-  VehicleModel v;
+  auto v = locked();
   mavlink_extended_sys_state_t e{};
   e.landed_state = MAV_LANDED_STATE_IN_AIR;
   mavlink_message_t m;
@@ -277,7 +286,7 @@ TEST(VehicleModel, ExtendedSysStateLanded) {
   e.landed_state = MAV_LANDED_STATE_UNDEFINED;
   mavlink_msg_extended_sys_state_encode(kSys, kComp, &m, &e);
   v.apply(m);
-  EXPECT_EQ(v.state().landed, LandedState::Unknown);
+  EXPECT_FALSE(v.state().landed.has_value());
 }
 
 TEST(VehicleModel, DiscreteChangeFlags) {
@@ -325,4 +334,43 @@ TEST(VehicleModel, ResetForResetupKeepsAdapterAndClearsLearnedInfo) {
   // adapter still there: modes keep decoding
   v.apply(px4_heartbeat(MAV_MODE_FLAG_CUSTOM_MODE_ENABLED, (7u << 16)));
   EXPECT_EQ(v.state().mode->mode, FlightMode::Stabilized);
+}
+
+TEST(VehicleModel, IgnoresTelemetryBeforeLock) {
+  VehicleModel v;
+  EXPECT_EQ(v.apply(gpi(1, 2, 3, 4, 0, 0, 0, 0)), Changed::None);
+  EXPECT_TRUE(std::isnan(v.pose().lat_deg));
+  v.apply(px4_heartbeat(0));
+  EXPECT_EQ(v.apply(gpi(473977420, 85455940, 0, 0, 0, 0, 0, 0)), Changed::Pose);
+  EXPECT_DOUBLE_EQ(v.pose().lat_deg, 47.397742);
+}
+
+TEST(VehicleModel, IgnoresOtherSysid) {
+  auto v = locked();
+  mavlink_global_position_int_t g{};
+  g.lat = 100;
+  mavlink_message_t m;
+  mavlink_msg_global_position_int_encode(9, kComp, &m, &g);
+  EXPECT_EQ(v.apply(m), Changed::None);
+  EXPECT_TRUE(std::isnan(v.pose().lat_deg));
+  EXPECT_FALSE(v.state_changed_discrete());
+  EXPECT_FALSE(v.health_changed_discrete());
+}
+
+TEST(VehicleModel, IgnoresOtherComponentSameSysid) {
+  auto v = locked();
+  v.apply(system_time(1'700'000'000'000'000ull, 10'000));
+  mavlink_system_time_t t{};
+  t.time_unix_usec = 5'000'000'000'000'000ull;
+  t.time_boot_ms = 1;
+  mavlink_message_t m;
+  mavlink_msg_system_time_encode(kSys, MAV_COMP_ID_CAMERA, &m, &t);
+  EXPECT_EQ(v.apply(m), Changed::None);
+  EXPECT_EQ(v.source_time_us(12'000), 1'700'000'002'000'000ull);
+
+  mavlink_battery_status_t b{};
+  b.time_remaining = 600;
+  mavlink_msg_battery_status_encode(kSys, MAV_COMP_ID_CAMERA, &m, &b);
+  EXPECT_EQ(v.apply(m), Changed::None);
+  EXPECT_TRUE(std::isnan(v.health().battery_time_remaining_s));
 }
