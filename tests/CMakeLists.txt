@@ -7,7 +7,9 @@ add_executable(skyrelay_unit_tests
   unit/mavlink/link_monitor_test.cpp
   unit/mavlink/link_uri_test.cpp
   unit/mavlink/packer_test.cpp
-  unit/mavlink/setup_sequence_test.cpp)
+  unit/mavlink/px4_adapter_test.cpp
+  unit/mavlink/setup_sequence_test.cpp
+  unit/mavlink/vehicle_model_test.cpp)
 target_link_libraries(skyrelay_unit_tests PRIVATE
   skyrelay::common skyrelay::mavlink GTest::gtest_main)
 skyrelay_enable_warnings(skyrelay_unit_tests)
