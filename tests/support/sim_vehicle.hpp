@@ -125,6 +125,8 @@ class SimVehicle {
   void set_online(bool online) { online_ = online; }
 
   uint8_t sysid() const { return sysid_; }
+  // Sequence number of the next frame the vehicle sends.
+  uint8_t next_seq() const { return tx_.current_tx_seq; }
   int32_t lat_e7() const { return lat_e7_; }
   // Vehicle UTC for a time_boot_ms stamp of the current boot.
   uint64_t source_time_us(uint32_t time_boot_ms) const {

@@ -181,7 +181,7 @@ Changed VehicleModel::on_global_position(const mavlink_message_t& msg) {
   pose_.vel_d_mps = static_cast<float>(g.vz) / 100.0f;
   pose_.heading_deg =
       g.hdg == UINT16_MAX ? kNaNf : static_cast<float>(g.hdg) / 100.0f;
-  return Changed::Pose;
+  return Changed::Pose | note_boot_time(g.time_boot_ms);
 }
 
 Changed VehicleModel::on_attitude(const mavlink_message_t& msg) {
@@ -192,7 +192,7 @@ Changed VehicleModel::on_attitude(const mavlink_message_t& msg) {
   pose_.q_x = q.q2;
   pose_.q_y = q.q3;
   pose_.q_z = q.q4;
-  return Changed::Pose;
+  return Changed::Pose | note_boot_time(q.time_boot_ms);
 }
 
 Changed VehicleModel::on_sys_status(const mavlink_message_t& msg) {
@@ -261,12 +261,28 @@ Changed VehicleModel::on_extended_sys_state(const mavlink_message_t& msg) {
 Changed VehicleModel::on_system_time(const mavlink_message_t& msg) {
   mavlink_system_time_t t;
   mavlink_msg_system_time_decode(&msg, &t);
+  // First, so a reboot drops the old offset even when this message has none
+  // to replace it with.
+  const Changed reboot = note_boot_time(t.time_boot_ms);
   // A vehicle with no clock source sends 0; keep whatever offset we had.
-  if (t.time_unix_usec == 0) return Changed::None;
+  if (t.time_unix_usec == 0) return reboot;
   time_offset_us_ = static_cast<int64_t>(t.time_unix_usec) -
                     static_cast<int64_t>(t.time_boot_ms) * 1000;
   have_time_offset_ = true;
-  return Changed::Time;
+  return Changed::Time | reboot;
+}
+
+Changed VehicleModel::note_boot_time(uint32_t t) {
+  if (max_boot_ms_ && *max_boot_ms_ > t &&
+      *max_boot_ms_ - t > kRebootBackstepMs) {
+    // The old offset would date the new boot's stamps by the old uptime.
+    have_time_offset_ = false;
+    time_offset_us_ = 0;
+    max_boot_ms_ = t;
+    return Changed::Reboot;
+  }
+  if (!max_boot_ms_ || t > *max_boot_ms_) max_boot_ms_ = t;
+  return Changed::None;
 }
 
 Changed VehicleModel::on_autopilot_version(const mavlink_message_t& msg) {
@@ -290,6 +306,7 @@ void VehicleModel::reset_for_resetup() {
   info_.capabilities.reset();
   have_time_offset_ = false;
   time_offset_us_ = 0;
+  max_boot_ms_.reset();
 }
 
 }  // namespace skyrelay::vehicle

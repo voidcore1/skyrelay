@@ -81,6 +81,23 @@ mavlink_message_t system_time(uint64_t unix_us, uint32_t boot_ms) {
   return m;
 }
 
+mavlink_message_t gpi_at(uint32_t time_boot_ms) {
+  mavlink_global_position_int_t g{};
+  g.time_boot_ms = time_boot_ms;
+  mavlink_message_t m;
+  mavlink_msg_global_position_int_encode(kSys, kComp, &m, &g);
+  return m;
+}
+
+mavlink_message_t attitude_at(uint32_t time_boot_ms) {
+  mavlink_attitude_quaternion_t q{};
+  q.time_boot_ms = time_boot_ms;
+  q.q1 = 1.0f;
+  mavlink_message_t m;
+  mavlink_msg_attitude_quaternion_encode(kSys, kComp, &m, &q);
+  return m;
+}
+
 // A model already locked to the vehicle (sysid 1, compid 1).
 VehicleModel locked() {
   VehicleModel v;
@@ -223,6 +240,51 @@ TEST(VehicleModel, SourceTimeUnknownIsZero) {
   EXPECT_EQ(v.source_time_us(12'000), 0u);
   v.apply(system_time(0, 10'000));
   EXPECT_EQ(v.source_time_us(12'000), 0u);
+}
+
+TEST(VehicleModel, TimeBootGoingBackwardsIsAReboot) {
+  auto v = locked();
+  v.apply(system_time(1'700'000'000'000'000ull, 600'000));
+  EXPECT_EQ(v.apply(gpi_at(600'020)), Changed::Pose);
+  // A frame up to a second older (reordering, a late stream) is not a reboot.
+  EXPECT_EQ(v.apply(gpi_at(599'100)), Changed::Pose);
+  EXPECT_EQ(v.source_time_us(600'000), 1'700'000'000'000'000ull);
+
+  const Changed c = v.apply(gpi_at(300));
+  EXPECT_EQ(c, Changed::Pose | Changed::Reboot);
+  EXPECT_EQ(v.source_time_us(300), 0u);
+
+  // The new boot moves forward again: one reboot, not one per frame.
+  EXPECT_EQ(v.apply(gpi_at(350)), Changed::Pose);
+  EXPECT_EQ(v.apply(attitude_at(360)), Changed::Pose);
+  EXPECT_EQ(v.source_time_us(350), 0u);
+  v.apply(system_time(1'700'000'700'000'000ull, 400));
+  EXPECT_EQ(v.source_time_us(400), 1'700'000'700'000'000ull);
+}
+
+TEST(VehicleModel, RebootSeenInSystemTimeAndAttitude) {
+  auto v = locked();
+  v.apply(system_time(1'700'000'000'000'000ull, 600'000));
+  // Rebooted with no clock source: unix 0 must not leave the old offset.
+  EXPECT_EQ(v.apply(system_time(0, 300)), Changed::Reboot);
+  EXPECT_EQ(v.source_time_us(300), 0u);
+
+  v.apply(attitude_at(700'000));
+  EXPECT_EQ(v.apply(attitude_at(200)), Changed::Pose | Changed::Reboot);
+
+  // A SYSTEM_TIME that reveals the reboot also brings the new offset.
+  v.apply(system_time(1'700'000'000'000'000ull, 900'000));
+  EXPECT_EQ(v.apply(system_time(1'700'000'900'000'000ull, 100)),
+            Changed::Time | Changed::Reboot);
+  EXPECT_EQ(v.source_time_us(100), 1'700'000'900'000'000ull);
+}
+
+TEST(VehicleModel, ResetForResetupForgetsBootTime) {
+  auto v = locked();
+  v.apply(gpi_at(600'000));
+  v.reset_for_resetup();
+  // The reconnect already re-learns everything; no second reboot on top.
+  EXPECT_EQ(v.apply(gpi_at(300)), Changed::Pose);
 }
 
 TEST(VehicleModel, FirmwareVersionFormatted) {

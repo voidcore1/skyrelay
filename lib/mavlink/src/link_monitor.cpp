@@ -95,6 +95,11 @@ void LinkMonitor::on_setup_complete(MonoTime now) {
   if (state_ == LinkState::Recovering) healthy_since_ = now;
 }
 
+void LinkMonitor::on_peer_restart(MonoTime /*now*/) {
+  last_seq_.clear();
+  window_.clear();
+}
+
 std::optional<LinkTransition> LinkMonitor::tick(MonoTime now) {
   if (state_ == LinkState::Lost) return std::nullopt;
   prune(now);

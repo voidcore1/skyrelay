@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 
 #include "skyrelay/mav/mavlink.hpp"
 #include "skyrelay/vehicle/adapter.hpp"
@@ -9,14 +10,17 @@
 
 namespace skyrelay::vehicle {
 
-// Which parts of the model one apply() touched. Bit flags.
+// Which parts of the model one apply() touched. Bit flags; append only.
+// Reboot: time_boot_ms went back by more than kRebootBackstepMs, so the
+// vehicle restarted. The SYSTEM_TIME offset is already dropped by then.
 enum class Changed : uint8_t {
   None = 0,
   Pose = 1,
   State = 2,
   Health = 4,
   Info = 8,
-  Time = 16
+  Time = 16,
+  Reboot = 32
 };
 
 constexpr Changed operator|(Changed a, Changed b) {
@@ -40,6 +44,12 @@ constexpr bool has(Changed value, Changed flag) {
 // any message from a different system id.
 class VehicleModel {
  public:
+  // A time_boot_ms this far below the highest one seen from the autopilot
+  // (SYSTEM_TIME, GLOBAL_POSITION_INT, ATTITUDE_QUATERNION) means a reboot.
+  // Anything smaller is taken as reordering. A uint32 ms wrap after 49 days of
+  // uptime also reads as a reboot, which only costs one extra setup.
+  static constexpr uint32_t kRebootBackstepMs = 1000;
+
   // Returns what changed. Messages the model does not use give None. A flag is
   // set whenever the message was one that feeds that part, even if the values
   // came out the same, so callers can use it to pace periodic publishing.
@@ -66,9 +76,10 @@ class VehicleModel {
   bool state_changed_discrete() const { return state_discrete_; }
   bool health_changed_discrete() const { return health_discrete_; }
 
-  // Forget what is learned from AUTOPILOT_VERSION (firmware, capabilities) and
-  // the SYSTEM_TIME offset, so a reconnect re-learns them. The adapter and
-  // everything else stays.
+  // Forget what is learned from AUTOPILOT_VERSION (firmware, capabilities),
+  // the SYSTEM_TIME offset and the highest time_boot_ms, so a reconnect
+  // re-learns them and its first time stamp cannot read as a reboot. The
+  // adapter and everything else stays.
   void reset_for_resetup();
 
  private:
@@ -81,6 +92,9 @@ class VehicleModel {
   Changed on_extended_sys_state(const mavlink_message_t& msg);
   Changed on_system_time(const mavlink_message_t& msg);
   Changed on_autopilot_version(const mavlink_message_t& msg);
+  // Records a time_boot_ms; on a reboot drops the time offset and returns
+  // Changed::Reboot, otherwise Changed::None.
+  Changed note_boot_time(uint32_t time_boot_ms);
 
   std::unique_ptr<AutopilotAdapter> adapter_;
   PoseData pose_;
@@ -89,6 +103,7 @@ class VehicleModel {
   InfoData info_;
   bool have_time_offset_{false};
   int64_t time_offset_us_{0};
+  std::optional<uint32_t> max_boot_ms_;
   bool state_discrete_{false};
   bool health_discrete_{false};
 };

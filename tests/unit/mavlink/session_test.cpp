@@ -301,6 +301,8 @@ TEST(Session, RebootTriggersResetup) {
 
   EXPECT_EQ(h.session.link_state(), LinkState::Connected);
   EXPECT_EQ(h.session.counters().resetups, 2u);
+  // Seen as a reconnect, not also as a reboot on top of it.
+  EXPECT_EQ(h.session.counters().reboots, 0u);
 
   int version_requests = 0;
   for (const auto& c : h.transport.commands()) {
@@ -325,6 +327,73 @@ TEST(Session, RebootTriggersResetup) {
     ++dated;
   }
   EXPECT_GT(dated, 0);
+}
+
+// Review Focus 3, fast case: the vehicle is back before the link is lost,
+// so only the restart of time_boot_ms and seq gives the reboot away.
+TEST(Session, FastRebootTriggersResetup) {
+  Harness h;
+  auto& v = h.add_vehicle(1);
+  h.run_for(3s);
+  ASSERT_EQ(h.session.link_state(), LinkState::Connected);
+  // From a seq in [128, 255], a restart at 0 is a forward step of at most
+  // 128, which the link monitor would otherwise book as lost frames.
+  for (int i = 0; i < 2000 && v.next_seq() < 180; ++i) h.run_for(10ms);
+  ASSERT_GE(v.next_seq(), 128);
+  ASSERT_LE(v.next_seq(), 230);
+  const size_t links_before = h.sink.links.size();
+  const auto first_setup = h.transport.commands();
+  ASSERT_EQ(first_setup.size(), Px4Adapter{}.telemetry_intervals().size() + 1);
+
+  v.set_online(false);
+  h.run_for(300ms);
+  v.reboot(h.clock.mono());
+  const uint64_t rebooted_at = h.clock.realtime_ns();
+  v.set_online(true);
+  h.run_for(2s);
+
+  EXPECT_EQ(h.session.counters().resetups, 2u);
+  EXPECT_EQ(h.session.counters().reboots, 1u);
+
+  // The whole setup again: version request, then every interval.
+  const auto cmds = h.transport.commands();
+  ASSERT_EQ(cmds.size(), 2 * first_setup.size());
+  for (size_t i = 0; i < first_setup.size(); ++i) {
+    const auto& again = cmds[first_setup.size() + i];
+    EXPECT_EQ(again.command, first_setup[i].command) << i;
+    EXPECT_FLOAT_EQ(again.param1, first_setup[i].param1) << i;
+    EXPECT_FLOAT_EQ(again.param2, first_setup[i].param2) << i;
+  }
+
+  ASSERT_EQ(h.sink.infos.size(), 2u);
+  EXPECT_EQ(h.sink.infos[1].data.firmware_version, "1.17.0");
+
+  // Source time is unknown until the new boot's SYSTEM_TIME, then right; never
+  // the old boot's offset applied to the new time_boot_ms.
+  int unknown = 0;
+  int dated = 0;
+  for (const auto& p : h.sink.poses) {
+    if (p.stamp.t_bridge_ns < rebooted_at) continue;
+    if (p.stamp.t_source_us == 0) {
+      EXPECT_EQ(dated, 0) << "unknown source time after a dated one";
+      ++unknown;
+      continue;
+    }
+    EXPECT_EQ(p.stamp.t_source_us, v.source_time_us(p.data.time_boot_ms));
+    ++dated;
+  }
+  EXPECT_GT(unknown, 0);
+  EXPECT_GT(dated, 0);
+
+  // The silence degrades the link (gap) and traffic brings it straight back.
+  // The seq restart must not be booked as loss.
+  EXPECT_EQ(h.sink.link_states(),
+            (std::vector<LinkState>{LinkState::Recovering, LinkState::Connected,
+                                    LinkState::Degraded,
+                                    LinkState::Connected}));
+  for (size_t i = links_before; i < h.sink.links.size(); ++i) {
+    EXPECT_LT(h.sink.links[i].data.stats.loss_pct, 1.0) << i;
+  }
 }
 
 TEST(Session, StateChangePublishedImmediately) {

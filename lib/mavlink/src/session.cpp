@@ -108,6 +108,15 @@ void VehicleSession::handle(const mavlink_message_t& msg, MonoTime now,
     }
   }
   const Changed ch = model_.apply(msg);
+  if (has(ch, Changed::Reboot)) {
+    // Back before the link was lost: the vehicle restarted with its message
+    // intervals gone and its seq at 0, so it gets the reconnect treatment
+    // while the link state keeps following the traffic.
+    ++counters_.reboots;
+    model_.reset_for_resetup();
+    monitor_.on_peer_restart(now);
+    resetup = true;
+  }
   // After apply(): on the first connect this heartbeat is what picks the
   // adapter whose interval list the setup sends.
   if (resetup) begin_setup(now);

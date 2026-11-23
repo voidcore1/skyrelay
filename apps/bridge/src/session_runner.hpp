@@ -92,6 +92,7 @@ class SessionRunner {
   std::chrono::steady_clock::time_point next_tick_{};
   uint16_t port_ = 0;
   uint64_t foreign_logged_ = 0;
+  uint64_t reboots_logged_ = 0;
   // Only touched on the runner thread, inside the posted stop handler and the
   // timer handler.
   bool stopping_ = false;

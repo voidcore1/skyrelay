@@ -162,6 +162,14 @@ void SessionRunner::on_timer() {
     foreign_logged_ = foreign;
   }
 
+  const uint64_t reboots = session_->counters().reboots;
+  if (reboots != reboots_logged_) {
+    spdlog::warn("{}: vehicle restarted without losing the link, setting it "
+                 "up again",
+                 label_);
+    reboots_logged_ = reboots;
+  }
+
   // Fixed rate; after a stall, carry on from now rather than catch up.
   next_tick_ += kTick;
   const auto now = std::chrono::steady_clock::now();

@@ -56,17 +56,24 @@ class Transport {
 //   forgets what the last setup learned and runs a new SetupSequence: version
 //   request, then the adapter's message intervals. When it is done the link
 //   monitor hears about it and vehicle_info is published.
+// - Reboot. A restart quick enough that the link never reaches Lost shows up
+//   as time_boot_ms going backwards (Changed::Reboot). It gets the same reset
+//   and a new setup, and the link monitor forgets its sequence history, with
+//   no change of link state.
 // - Publishing. pose on each GLOBAL_POSITION_INT, capped at pose_hz.
 //   vehicle_state and health at once on a discrete change, otherwise at their
-//   rate while the link is not Lost. link_status on every transition and at
-//   link_hz. vehicle_info after each setup, and again if it changes later.
+//   rate; the periodic ones pause while the link is Lost, so stale values are
+//   not repeated. link_status on every transition and at link_hz.
+//   vehicle_info after each setup, and again if it changes later.
 // - The bridge's GCS HEARTBEAT goes out at 1 Hz.
 class VehicleSession {
  public:
   struct Counters {
     uint64_t foreign_sysid_frames = 0;
-    // Setup runs started, counting the first.
+    // Setup runs started, counting the first and those after a reboot.
     uint64_t resetups = 0;
+    // Restarts seen while the link was up (see Reboot above).
+    uint64_t reboots = 0;
   };
 
   // Throws std::invalid_argument if the channel is not below mav::kMaxChannels

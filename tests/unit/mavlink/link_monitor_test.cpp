@@ -205,6 +205,46 @@ TEST_F(LinkMonitorTest, SeqDiscontinuityIsNotLoss) {
   EXPECT_DOUBLE_EQ(m.stats(at(1000ms)).loss_pct, 0.0);
 }
 
+// A vehicle that restarts within lost_gap starts its seq again at 0. From
+// 200 that is a forward step of 56, which would be booked as 55 lost frames.
+TEST_F(LinkMonitorTest, PeerRestartClearsSequenceHistory) {
+  connect();
+  while (seq1 != 200) {
+    m.on_message(clock.mono(), 1, seq1++);
+    clock.advance(20ms);
+    ASSERT_FALSE(m.tick(clock.mono()).has_value());
+  }
+  m.on_peer_restart(clock.mono());
+  seq1 = 0;
+  for (int i = 0; i < 100; ++i) {
+    m.on_message(clock.mono(), 1, seq1++);
+    clock.advance(20ms);
+    EXPECT_FALSE(m.tick(clock.mono()).has_value()) << i;
+    EXPECT_DOUBLE_EQ(m.stats(clock.mono()).loss_pct, 0.0) << i;
+  }
+  EXPECT_EQ(m.state(), LinkState::Connected);
+}
+
+// The restart is usually recognised a frame late (the first frame of the new
+// boot may carry no time), after its seq step has been booked as loss.
+TEST_F(LinkMonitorTest, PeerRestartAlsoForgetsLossAlreadyBooked) {
+  connect();
+  while (seq1 != 200) {
+    m.on_message(clock.mono(), 1, seq1++);
+    clock.advance(20ms);
+  }
+  seq1 = 0;
+  m.on_message(clock.mono(), 1, seq1++);  // step 56: 55 frames "lost"
+  ASSERT_GT(m.stats(clock.mono()).loss_pct, 20.0);
+  m.on_peer_restart(clock.mono());
+  for (int i = 0; i < 100; ++i) {
+    m.on_message(clock.mono(), 1, seq1++);
+    clock.advance(20ms);
+    EXPECT_FALSE(m.tick(clock.mono()).has_value()) << i;
+    EXPECT_DOUBLE_EQ(m.stats(clock.mono()).loss_pct, 0.0) << i;
+  }
+}
+
 TEST_F(LinkMonitorTest, DuplicateIsIgnoredForLoss) {
   for (int i = 0; i < 10; ++i) {
     m.on_message(at(i * 40ms), 1, static_cast<uint8_t>(i));

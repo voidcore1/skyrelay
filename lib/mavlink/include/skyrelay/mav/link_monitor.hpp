@@ -55,6 +55,10 @@ class LinkMonitor {
   // Ignored unless Recovering: the caller restarts setup on every
   // Lost -> Recovering transition.
   void on_setup_complete(MonoTime now);
+  // The vehicle restarted without the link getting as far as Lost, so its
+  // sequence numbers start over. Forgets the per-component sequences and the
+  // loss window, so the restart is not booked as lost frames. No state change.
+  void on_peer_restart(MonoTime now);
   // Call periodically; evaluates gaps, loss and the recovery timer. It must
   // run at least every 100 ms to meet the 1.5 s lost-detection target.
   std::optional<LinkTransition> tick(MonoTime now);
