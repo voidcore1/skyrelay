@@ -13,7 +13,11 @@ template <class Qos>
 Qos build(Profile p) {
   Qos q;
   q << ::dds::core::policy::Reliability::Reliable()
-    << ::dds::core::policy::History::KeepLast(1);
+    << ::dds::core::policy::History::KeepLast(1)
+    // The wire format is XCDR2, set explicitly: the default can offer XCDR1
+    // too, and appendable types are only extensible under XCDR2.
+    << ::dds::core::policy::DataRepresentation(
+           {::dds::core::policy::DataRepresentationId::XCDR2});
   switch (p) {
     case Profile::TelemetryFast:
       q << ::dds::core::policy::Durability::Volatile()

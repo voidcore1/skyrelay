@@ -4,6 +4,7 @@ add_executable(skyrelay_unit_tests
   unit/common/clock_test.cpp
   unit/dds/domain_test.cpp
   unit/dds/json_test.cpp
+  unit/dds/mapping_test.cpp
   unit/dds/qos_test.cpp
   unit/mavlink/command_transaction_test.cpp
   unit/mavlink/framer_test.cpp
@@ -19,7 +20,7 @@ skyrelay_enable_warnings(skyrelay_unit_tests)
 gtest_discover_tests(skyrelay_unit_tests PROPERTIES LABELS unit)
 
 add_executable(skyrelay_integration_tests integration/udp_link_test.cpp
-  integration/dds_roundtrip_test.cpp)
+  integration/dds_roundtrip_test.cpp integration/dds_sink_test.cpp)
 target_link_libraries(skyrelay_integration_tests PRIVATE
   skyrelay::mavlink skyrelay::dds GTest::gtest_main)
 skyrelay_enable_warnings(skyrelay_integration_tests)

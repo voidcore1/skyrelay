@@ -11,10 +11,11 @@ if(_idl_inc)
     INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${_idl_inc}")
 endif()
 
-add_library(skyrelay_dds src/qos.cpp src/domain.cpp)
+add_library(skyrelay_dds src/qos.cpp src/domain.cpp src/mapping.cpp
+  src/dds_sink.cpp)
 add_library(skyrelay::dds ALIAS skyrelay_dds)
 target_include_directories(skyrelay_dds PUBLIC include)
 target_compile_features(skyrelay_dds PUBLIC cxx_std_20)
 skyrelay_enable_warnings(skyrelay_dds)
-target_link_libraries(skyrelay_dds PUBLIC skyrelay_idl CycloneDDS-CXX::ddscxx
+target_link_libraries(skyrelay_dds PUBLIC skyrelay::mavlink skyrelay_idl CycloneDDS-CXX::ddscxx
   CycloneDDS::ddsc nlohmann_json::nlohmann_json)

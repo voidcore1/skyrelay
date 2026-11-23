@@ -62,3 +62,13 @@ TEST(Qos, TopicNamesAreVersioned) {
   EXPECT_EQ(kTopicPose, "skyrelay/v1/pose");
   EXPECT_EQ(kTopicLinkStatus, "skyrelay/v1/link_status");
 }
+
+TEST(Qos, EveryProfileIsXcdr2) {
+  for (auto p : {Profile::TelemetryFast, Profile::TelemetryReliable,
+                 Profile::StateLatched}) {
+    const DataRepresentationIdSeq want{DataRepresentationId::XCDR2};
+    EXPECT_EQ(writer_qos(p).policy<DataRepresentation>().value(), want);
+    EXPECT_EQ(reader_qos(p).policy<DataRepresentation>().value(), want);
+    EXPECT_EQ(topic_qos(p).policy<DataRepresentation>().value(), want);
+  }
+}
