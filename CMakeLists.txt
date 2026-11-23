@@ -11,6 +11,7 @@ include(SkyRelayWarnings)
 
 find_package(GTest CONFIG REQUIRED)
 find_package(CycloneDDS-CXX CONFIG REQUIRED)
+find_package(nlohmann_json CONFIG REQUIRED)
 find_package(boost_asio CONFIG REQUIRED)
 find_package(Threads REQUIRED)
 skyrelay_system_includes(Boost::asio GTest::gtest GTest::gtest_main GTest::gmock

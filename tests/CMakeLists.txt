@@ -3,6 +3,7 @@ include(GoogleTest)
 add_executable(skyrelay_unit_tests
   unit/common/clock_test.cpp
   unit/dds/domain_test.cpp
+  unit/dds/json_test.cpp
   unit/dds/qos_test.cpp
   unit/mavlink/command_transaction_test.cpp
   unit/mavlink/framer_test.cpp
