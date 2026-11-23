@@ -27,6 +27,13 @@ LABEL org.opencontainers.image.title="px4-sitl (SIH)" \
       org.opencontainers.image.version="${PX4_VERSION}"
 COPY --from=build /out/ /opt/px4/
 COPY entrypoint.sh /opt/px4/bin/skyrelay-entrypoint.sh
+# PX4 sends the offboard link to 127.0.0.1 by default. Make that one link use
+# the partner address in $SKYRELAY_HOST_IP, which the entrypoint sets at run
+# time. The grep fails the build if PX4 ever changes the line I patch.
+RUN sed -i 's/-m onboard -o \$udp_offboard_port_remote/-m onboard -t $SKYRELAY_HOST_IP -o $udp_offboard_port_remote/' \
+        /opt/px4/etc/init.d-posix/px4-rc.mavlink \
+    && grep -q -- '-m onboard -t \$SKYRELAY_HOST_IP -o \$udp_offboard_port_remote' \
+        /opt/px4/etc/init.d-posix/px4-rc.mavlink
 ENV PX4_SIM_MODEL=sihsim_quadx \
     PX4_SIMULATOR=sihsim \
     INSTANCE=0

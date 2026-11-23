@@ -7,24 +7,32 @@ x-px4: &px4
   extra_hosts:
     - "host.docker.internal:host-gateway"
   networks: [skyrelay-sim]
+  # The image is built locally and exists in no registry.
+  pull_policy: never
   restart: "no"
   stop_grace_period: 3s
 
 services:
   px4-0:
     <<: *px4
-    # Only one service builds, so the four don't race to export the same tag.
+    # Only this service builds, so the four don't race to export the same tag.
+    # The others wait for it, so a clean `up -d` builds before anything starts.
+    # `build` rebuilds on every `up`; the layer cache makes that take seconds.
     build:
       context: ../px4-sitl
+    pull_policy: build
     environment: {INSTANCE: "0"}
   px4-1:
     <<: *px4
+    depends_on: [px4-0]
     environment: {INSTANCE: "1"}
   px4-2:
     <<: *px4
+    depends_on: [px4-0]
     environment: {INSTANCE: "2"}
   px4-3:
     <<: *px4
+    depends_on: [px4-0]
     environment: {INSTANCE: "3"}
 
 networks:

@@ -9,11 +9,12 @@ import select
 import socket
 import sys
 import time
-from typing import NamedTuple, Optional
+from typing import Iterator, NamedTuple, Optional
 
 HEARTBEAT_MSGID = 0
 V2_MAGIC, V1_MAGIC = 0xFD, 0xFE
 V2_HEADER, V1_HEADER = 10, 6
+V2_SIGNED_FLAG, V2_SIGNATURE_LEN = 0x01, 13
 HEARTBEAT_LEN = 9  # custom_mode u32, type, autopilot, base_mode, system_status, mavlink_version
 
 
@@ -47,6 +48,29 @@ def parse_heartbeat(frame: bytes) -> Optional[Heartbeat]:
     return Heartbeat(sysid, compid, payload[5], payload[4])
 
 
+def iter_frames(datagram: bytes) -> Iterator[bytes]:
+    """Yield each MAVLink v1/v2 frame in a datagram; stop at truncation or garbage."""
+    pos = 0
+    while pos < len(datagram):
+        magic = datagram[pos]
+        if magic == V2_MAGIC:
+            if pos + V2_HEADER > len(datagram):
+                return
+            size = V2_HEADER + datagram[pos + 1] + 2
+            if datagram[pos + 2] & V2_SIGNED_FLAG:
+                size += V2_SIGNATURE_LEN
+        elif magic == V1_MAGIC:
+            if pos + V1_HEADER > len(datagram):
+                return
+            size = V1_HEADER + datagram[pos + 1] + 2
+        else:
+            return
+        if pos + size > len(datagram):
+            return
+        yield datagram[pos:pos + size]
+        pos += size
+
+
 def parse_ports(spec: str) -> list[int]:
     ports: list[int] = []
     for part in spec.split(","):
@@ -72,9 +96,10 @@ def wait_for_heartbeats(ports: list[int], timeout: float) -> dict[int, Heartbeat
             ready, _, _ = select.select(list(socks), [], [], 0.5)
             for s in ready:
                 data, _ = s.recvfrom(2048)
-                hb = parse_heartbeat(data)
-                if hb is not None and hb.autopilot != 8:  # ignore anything but vehicle autopilots
-                    seen.setdefault(socks[s], hb)
+                for frame in iter_frames(data):
+                    hb = parse_heartbeat(frame)
+                    if hb is not None and hb.autopilot != 8:  # 8 = MAV_AUTOPILOT_INVALID (GCS, onboard)
+                        seen.setdefault(socks[s], hb)
             if len(seen) == len(ports) and len({h.sysid for h in seen.values()}) == len(ports):
                 break
     finally:

@@ -13,10 +13,14 @@ user-defined Docker network `skyrelay-sim`.
 ## Up and down
 
 ```sh
-docker compose -f sim/sih-px4-4/compose.yaml up -d --build
+docker compose -f sim/sih-px4-4/compose.yaml up -d
 python3 sim/check_heartbeats.py --ports 14540-14543 --timeout 90
 docker compose -f sim/sih-px4-4/compose.yaml down
 ```
+
+The first `up` builds the image (only `px4-0` has a `build:` section and the other
+three wait for it), and every later `up` runs the build step again, which the
+layer cache turns into a few seconds.
 
 The checker prints one `port sysid autopilot` row per vehicle and exits 0 when
 every port has seen a heartbeat with a distinct sysid. Autopilot 12 is PX4.
