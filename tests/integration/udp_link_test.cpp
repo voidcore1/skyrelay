@@ -58,3 +58,16 @@ TEST(UdpLink, ListenDropsSendBeforePeerKnown) {
   EXPECT_EQ(a.stats().tx_dropped_no_peer, 1u);
   EXPECT_EQ(a.stats().tx_datagrams, 0u);
 }
+
+TEST(UdpLink, DestroyBeforeDrainIsSafe) {
+  boost::asio::io_context io;
+  int rx_calls = 0;
+  UdpLink peer(io, LinkUri{LinkScheme::UdpListen, "127.0.0.1", 0}, nullptr);
+  {
+    UdpLink link(io, LinkUri{LinkScheme::UdpOut, "127.0.0.1", peer.local_port()},
+                 [&](std::span<const uint8_t>) { ++rx_calls; });
+    link.send(bytes_of("late"));
+  }
+  io.run_for(std::chrono::milliseconds(50));
+  EXPECT_EQ(rx_calls, 0);
+}

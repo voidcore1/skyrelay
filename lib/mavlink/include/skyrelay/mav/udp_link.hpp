@@ -3,6 +3,7 @@
 #include <array>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <span>
 #include <vector>
@@ -34,19 +35,27 @@ class UdpLink {
   UdpLink& operator=(const UdpLink&) = delete;
 
   void send(std::span<const uint8_t> bytes);
-  const Stats& stats() const { return stats_; }
-  uint16_t local_port() const { return socket_.local_endpoint().port(); }
+  const Stats& stats() const { return st_->stats; }
+  uint16_t local_port() const { return st_->socket.local_endpoint().port(); }
 
  private:
-  void arm_receive();
+  // Everything an in-flight handler touches lives here and is kept alive by
+  // the handlers themselves, so destroying the link before the io_context
+  // has drained is safe.
+  struct State {
+    explicit State(boost::asio::io_context& io) : socket(io) {}
+    boost::asio::ip::udp::socket socket;
+    std::optional<boost::asio::ip::udp::endpoint> peer;
+    bool fixed_peer = false;
+    bool alive = true;
+    boost::asio::ip::udp::endpoint rx_from;
+    std::array<uint8_t, 2048> rx_buf{};
+    RxHandler on_rx;
+    Stats stats;
+  };
+  static void arm_receive(const std::shared_ptr<State>& st);
 
-  boost::asio::ip::udp::socket socket_;
-  std::optional<boost::asio::ip::udp::endpoint> peer_;
-  bool fixed_peer_;
-  boost::asio::ip::udp::endpoint rx_from_;
-  std::array<uint8_t, 2048> rx_buf_{};
-  RxHandler on_rx_;
-  Stats stats_;
+  std::shared_ptr<State> st_;
 };
 
 }  // namespace skyrelay::mav
