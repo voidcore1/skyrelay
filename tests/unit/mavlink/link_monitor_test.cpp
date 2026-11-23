@@ -78,10 +78,60 @@ TEST_F(LinkMonitorTest, NoConnectWithoutSetup) {
 TEST_F(LinkMonitorTest, RecoveringFallsBackToLostOnGap) {
   feed(5);
   const MonoTime last = clock.mono() - 20ms;
-  EXPECT_FALSE(m.tick(last + 999ms).has_value());
-  auto tr = m.tick(last + 1000ms);
+  EXPECT_FALSE(m.tick(last + 2499ms).has_value());
+  auto tr = m.tick(last + 2500ms);
   ASSERT_TRUE(tr.has_value());
   EXPECT_EQ(tr->to, LinkState::Lost);
+}
+
+TEST_F(LinkMonitorTest, HeartbeatOnlyNeverConnects) {
+  m.on_message(at(0ms), 1, 0);
+  m.on_setup_complete(at(100ms));
+  uint8_t s = 1;
+  for (int ms = 0; ms <= 5000; ms += 10) {
+    if (ms % 1000 == 0 && ms > 0) m.on_message(at(std::chrono::milliseconds(ms)), 1, s++);
+    m.tick(at(std::chrono::milliseconds(ms)));
+    EXPECT_NE(m.state(), LinkState::Connected) << ms;
+  }
+}
+
+TEST_F(LinkMonitorTest, HeartbeatJitterDoesNotChurnRecovering) {
+  m.on_message(at(0ms), 1, 0);
+  uint8_t s = 1;
+  int next = 1;
+  for (int ms = 0; ms <= 10000; ms += 10) {
+    const int due = next * 1000 + (next % 2 ? -50 : 50);
+    if (ms == due) {
+      m.on_message(at(std::chrono::milliseconds(ms)), 1, s++);
+      ++next;
+    }
+    auto tr = m.tick(at(std::chrono::milliseconds(ms)));
+    EXPECT_FALSE(tr && tr->to == LinkState::Lost) << ms;
+  }
+  EXPECT_EQ(m.state(), LinkState::Recovering);
+}
+
+TEST_F(LinkMonitorTest, ReorderedFrameIsNotLoss) {
+  connect();
+  const uint8_t s = seq1;
+  for (uint8_t q : {uint8_t(s + 1), uint8_t(s), uint8_t(s + 2), uint8_t(s + 3)}) {
+    m.on_message(clock.mono(), 1, q);
+    clock.advance(20ms);
+    EXPECT_FALSE(m.tick(clock.mono()).has_value());
+  }
+  EXPECT_EQ(m.state(), LinkState::Connected);
+  EXPECT_NEAR(m.stats(clock.mono()).loss_pct, 0.0, 0.01);
+}
+
+TEST_F(LinkMonitorTest, SparseWindowDoesNotDegrade) {
+  connect();
+  const auto d = static_cast<uint8_t>(seq1 + 150);
+  for (uint8_t q : {d, uint8_t(d + 2), uint8_t(d + 3)}) {
+    m.on_message(clock.mono(), 1, q);
+    clock.advance(20ms);
+    EXPECT_FALSE(m.tick(clock.mono()).has_value());
+  }
+  EXPECT_EQ(m.state(), LinkState::Connected);
 }
 
 TEST_F(LinkMonitorTest, DegradesAfter250msGap) {
