@@ -49,6 +49,8 @@ class VehicleModel {
   const StateData& state() const { return state_; }
   const HealthData& health() const { return health_; }
   const InfoData& info() const { return info_; }
+  // The adapter chosen at the lock; null until the first autopilot HEARTBEAT.
+  const AutopilotAdapter* adapter() const { return adapter_.get(); }
 
   // Vehicle UTC in microseconds for a time_boot_ms stamp, using the offset
   // from the last SYSTEM_TIME. 0 until one with a non-zero unix time arrives.

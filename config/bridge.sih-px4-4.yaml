@@ -1,0 +1,12 @@
+# Bridge configuration for the four-vehicle PX4 SIH simulation
+# (sim/sih-px4-4). Instance N sends its offboard link to host UDP 14540+N,
+# and the bridge listens there and replies to whoever sent last.
+dds: { domain_id: 42, partition: default }
+gcs_sysid: 245
+link: { degraded_gap_ms: 250, lost_gap_ms: 1000, degraded_loss_pct: 20, recover_healthy_ms: 500 }
+rates: { pose_hz: 20, state_hz: 5, health_hz: 2 }
+vehicles:
+  - { id: 1, name: px4-0, link: "udp://0.0.0.0:14540" }
+  - { id: 2, name: px4-1, link: "udp://0.0.0.0:14541" }
+  - { id: 3, name: px4-2, link: "udp://0.0.0.0:14542" }
+  - { id: 4, name: px4-3, link: "udp://0.0.0.0:14543" }
