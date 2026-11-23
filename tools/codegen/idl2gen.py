@@ -242,15 +242,11 @@ class Parser:
 
 def parse(text):
     """Parse the restricted IDL subset into a Model."""
-    model = Parser(text).parse()
-    # Unscoped valid-bit enumerators share the namespace; names must be unique.
-    seen = {}
-    for s in model.structs:
-        for f in s.data_fields:
-            if f.name in seen:
-                raise IdlError(f"line {f.line}: field '{f.name}' of {s.name} clashes with {seen[f.name]}"
-                               " in the valid-bit namespace")
-            seen[f.name] = s.name
+    p = Parser(text)
+    model = p.parse()
+    t, line = p.peek()
+    if t:
+        raise IdlError(f"line {line}: unexpected '{t}' at top level")
     return model
 
 
@@ -304,9 +300,9 @@ def gen_valid_hpp(m):
     for s in m.structs:
         if not s.data_fields:
             continue
-        o.append(f"enum {s.name} : uint64_t {{")
+        o.append(f"struct {s.name} {{")
         for f in s.data_fields:
-            o.append(f"  {f.name} = 1ull << {f.bit},")
+            o.append(f"  static constexpr uint64_t {f.name} = 1ull << {f.bit};")
         o.append("};")
         o.append("")
     o.append(f"}}  // namespace {ns}::valid")

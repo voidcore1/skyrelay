@@ -38,3 +38,9 @@ TEST(ValidBits, PoseHeadingIsBit11) {
   EXPECT_EQ(skyrelay::v1::valid::Pose::heading_deg, 1ull << 11);
   EXPECT_EQ(skyrelay::v1::valid::Pose::lat_deg, 1ull << 0);
 }
+
+TEST(ValidBits, SameFieldNameInDifferentStructsDoesNotClash) {
+  EXPECT_EQ(skyrelay::v1::valid::LinkStatus::state, 1ull << 0);
+  EXPECT_EQ(skyrelay::v1::valid::VehicleState::armed, 1ull << 0);
+  EXPECT_EQ(skyrelay::v1::valid::LinkStatus::signing, 1ull << 5);
+}

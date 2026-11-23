@@ -46,6 +46,29 @@ class ParseRestricted(unittest.TestCase):
         with self.assertRaisesRegex(idl2gen.IdlError, r"line 3: union"):
             idl2gen.parse("module a {\n\n union U switch(long) { case 1: long x; };\n};")
 
+    def test_rejects_stray_close_brace(self):
+        with self.assertRaisesRegex(idl2gen.IdlError, r"line 3: unexpected"):
+            idl2gen.parse("module a {\n};\n}\n")
+
+    def test_rejects_trailing_tokens(self):
+        with self.assertRaisesRegex(idl2gen.IdlError, r"line 3: "):
+            idl2gen.parse("module a {\n};\nfoo\n")
+
+    def test_shared_field_names_across_structs(self):
+        idl = SAMPLE_IDL.replace("};\n};\n", """};
+@appendable
+struct Other {
+  @key uint32 vehicle_id;  // unit: -
+  Header header;
+  float x;                 // unit: -
+  double lat_deg;          // unit: deg
+};
+};
+""")
+        out = idl2gen.generate(idl2gen.parse(idl))
+        self.assertIn("struct Other {", out[idl2gen.VALID_HPP])
+        self.assertIn("static constexpr uint64_t lat_deg = 1ull << 1;", out[idl2gen.VALID_HPP])
+
     def test_rejects_optional(self):
         with self.assertRaisesRegex(idl2gen.IdlError, r"line 3: .*optional"):
             idl2gen.parse("module a {\n@appendable\nstruct S { @optional long x; };\n};")
@@ -71,7 +94,7 @@ class Generate(unittest.TestCase):
     def test_pose_heading_is_bit_11(self):
         idl = (ROOT / "idl/skyrelay/v1/types.idl").read_text()
         out = idl2gen.generate(idl2gen.parse(idl))
-        self.assertIn("heading_deg = 1ull << 11", out[idl2gen.VALID_HPP])
+        self.assertIn("static constexpr uint64_t heading_deg = 1ull << 11", out[idl2gen.VALID_HPP])
 
 
 class Check(unittest.TestCase):

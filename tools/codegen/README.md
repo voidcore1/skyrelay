@@ -35,10 +35,9 @@ same line, because the field table reads it.
 - NaN floats become JSON `null`; the TypeScript type for them is
   `number | null`. Enums become their literal name; a value this build does not
   know (a newer peer) becomes `null`.
-- The valid-bit constants are plain unscoped enums inside
-  `skyrelay::v1::valid`, so enumerator names share that namespace. The tool
-  rejects a data field name used by two structs; if that ever happens, switch
-  to a struct of `static constexpr` values per type.
+- The valid-bit constants are one struct of `static constexpr uint64_t` per
+  IDL struct inside `skyrelay::v1::valid`, so two structs may share a field
+  name (`valid::Pose::lat_deg`, `valid::LinkStatus::state`).
 - 64-bit integers are JSON numbers, so JavaScript loses precision above 2^53.
   `t_bridge_ns` is already past that, so the web station should treat it as
   approximate. Bit masks in TypeScript stop at bit 52 and the tool refuses more.

@@ -6,60 +6,60 @@
 // valid_mask bit i is the i-th data field after `header`.
 namespace skyrelay::v1::valid {
 
-enum VehicleInfo : uint64_t {
-  autopilot = 1ull << 0,
-  firmware_version = 1ull << 1,
-  vehicle_type = 1ull << 2,
-  mav_sysid = 1ull << 3,
-  mav_compid = 1ull << 4,
-  capabilities = 1ull << 5,
-  contract_version = 1ull << 6,
+struct VehicleInfo {
+  static constexpr uint64_t autopilot = 1ull << 0;
+  static constexpr uint64_t firmware_version = 1ull << 1;
+  static constexpr uint64_t vehicle_type = 1ull << 2;
+  static constexpr uint64_t mav_sysid = 1ull << 3;
+  static constexpr uint64_t mav_compid = 1ull << 4;
+  static constexpr uint64_t capabilities = 1ull << 5;
+  static constexpr uint64_t contract_version = 1ull << 6;
 };
 
-enum VehicleState : uint64_t {
-  armed = 1ull << 0,
-  mode = 1ull << 1,
-  mode_raw = 1ull << 2,
-  landed = 1ull << 3,
-  system_status = 1ull << 4,
+struct VehicleState {
+  static constexpr uint64_t armed = 1ull << 0;
+  static constexpr uint64_t mode = 1ull << 1;
+  static constexpr uint64_t mode_raw = 1ull << 2;
+  static constexpr uint64_t landed = 1ull << 3;
+  static constexpr uint64_t system_status = 1ull << 4;
 };
 
-enum Pose : uint64_t {
-  lat_deg = 1ull << 0,
-  lon_deg = 1ull << 1,
-  alt_msl_m = 1ull << 2,
-  alt_rel_home_m = 1ull << 3,
-  q_w = 1ull << 4,
-  q_x = 1ull << 5,
-  q_y = 1ull << 6,
-  q_z = 1ull << 7,
-  vel_n_mps = 1ull << 8,
-  vel_e_mps = 1ull << 9,
-  vel_d_mps = 1ull << 10,
-  heading_deg = 1ull << 11,
+struct Pose {
+  static constexpr uint64_t lat_deg = 1ull << 0;
+  static constexpr uint64_t lon_deg = 1ull << 1;
+  static constexpr uint64_t alt_msl_m = 1ull << 2;
+  static constexpr uint64_t alt_rel_home_m = 1ull << 3;
+  static constexpr uint64_t q_w = 1ull << 4;
+  static constexpr uint64_t q_x = 1ull << 5;
+  static constexpr uint64_t q_y = 1ull << 6;
+  static constexpr uint64_t q_z = 1ull << 7;
+  static constexpr uint64_t vel_n_mps = 1ull << 8;
+  static constexpr uint64_t vel_e_mps = 1ull << 9;
+  static constexpr uint64_t vel_d_mps = 1ull << 10;
+  static constexpr uint64_t heading_deg = 1ull << 11;
 };
 
-enum Health : uint64_t {
-  battery_voltage_v = 1ull << 0,
-  battery_current_a = 1ull << 1,
-  battery_remaining_pct = 1ull << 2,
-  battery_time_remaining_s = 1ull << 3,
-  gnss_fix = 1ull << 4,
-  gnss_satellites = 1ull << 5,
-  gnss_hdop = 1ull << 6,
-  sensors_present = 1ull << 7,
-  sensors_enabled = 1ull << 8,
-  sensors_healthy = 1ull << 9,
-  estimator_ok = 1ull << 10,
+struct Health {
+  static constexpr uint64_t battery_voltage_v = 1ull << 0;
+  static constexpr uint64_t battery_current_a = 1ull << 1;
+  static constexpr uint64_t battery_remaining_pct = 1ull << 2;
+  static constexpr uint64_t battery_time_remaining_s = 1ull << 3;
+  static constexpr uint64_t gnss_fix = 1ull << 4;
+  static constexpr uint64_t gnss_satellites = 1ull << 5;
+  static constexpr uint64_t gnss_hdop = 1ull << 6;
+  static constexpr uint64_t sensors_present = 1ull << 7;
+  static constexpr uint64_t sensors_enabled = 1ull << 8;
+  static constexpr uint64_t sensors_healthy = 1ull << 9;
+  static constexpr uint64_t estimator_ok = 1ull << 10;
 };
 
-enum LinkStatus : uint64_t {
-  state = 1ull << 0,
-  state_since_ns = 1ull << 1,
-  rx_rate_hz = 1ull << 2,
-  loss_pct = 1ull << 3,
-  last_rx_age_ms = 1ull << 4,
-  signing = 1ull << 5,
+struct LinkStatus {
+  static constexpr uint64_t state = 1ull << 0;
+  static constexpr uint64_t state_since_ns = 1ull << 1;
+  static constexpr uint64_t rx_rate_hz = 1ull << 2;
+  static constexpr uint64_t loss_pct = 1ull << 3;
+  static constexpr uint64_t last_rx_age_ms = 1ull << 4;
+  static constexpr uint64_t signing = 1ull << 5;
 };
 
 }  // namespace skyrelay::v1::valid
