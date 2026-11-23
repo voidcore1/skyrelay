@@ -3,6 +3,7 @@ include(GoogleTest)
 add_executable(skyrelay_unit_tests
   unit/common/clock_test.cpp
   unit/mavlink/framer_test.cpp
+  unit/mavlink/link_monitor_test.cpp
   unit/mavlink/link_uri_test.cpp
   unit/mavlink/packer_test.cpp)
 target_link_libraries(skyrelay_unit_tests PRIVATE
