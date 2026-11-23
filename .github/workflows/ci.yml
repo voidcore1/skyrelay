@@ -22,6 +22,8 @@ jobs:
         run: python3 tools/codegen/idl2gen.py --check
       - name: Codegen tests
         run: python3 -m unittest tests/unit/tools/test_idl2gen.py
+      - name: Latency report tests
+        run: python3 -m unittest tests/unit/tools/test_latency_report.py
 
   cpp:
     name: cpp (${{ matrix.image }})
