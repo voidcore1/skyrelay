@@ -19,4 +19,5 @@ skyrelay_system_includes(Boost::asio GTest::gtest GTest::gtest_main GTest::gmock
 enable_testing()
 add_subdirectory(lib/common)
 add_subdirectory(lib/mavlink)
+add_subdirectory(lib/dds)
 add_subdirectory(tests)

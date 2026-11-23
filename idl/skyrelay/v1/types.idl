@@ -1,0 +1,165 @@
+// SkyRelay IDL v1, the M1 telemetry topics.
+//
+// Rules (see docs/adr/0006-idl-rules.md):
+//  - every struct is @appendable, every per-vehicle type has @key vehicle_id;
+//  - no unions, maps, bitsets, @optional or recursive types;
+//  - fields and enum values are append-only;
+//  - every data field carries a trailing "// unit: <unit>" comment, which the
+//    contract codegen reads. Do not move it to its own line.
+//
+// valid_mask: bit i is the i-th field after `header`. A cleared bit means the
+// value is unavailable; floats are then NaN, integers and enums are 0.
+
+module skyrelay {
+module v1 {
+
+@appendable
+struct Header {
+  uint64 seq;           // unit: -
+  uint64 t_source_us;   // unit: us
+  uint64 t_bridge_ns;   // unit: ns
+  uint64 valid_mask;    // unit: -
+};
+
+@appendable
+enum AutopilotKind {
+  AUTOPILOT_UNKNOWN,
+  AUTOPILOT_PX4,
+  AUTOPILOT_ARDUPILOT,
+  AUTOPILOT_OTHER
+};
+
+@appendable
+enum VehicleType {
+  VEHICLE_TYPE_UNKNOWN,
+  VEHICLE_TYPE_MULTIROTOR,
+  VEHICLE_TYPE_FIXED_WING,
+  VEHICLE_TYPE_VTOL,
+  VEHICLE_TYPE_OTHER
+};
+
+@appendable
+enum FlightMode {
+  FLIGHT_MODE_UNKNOWN,
+  FLIGHT_MODE_MANUAL,
+  FLIGHT_MODE_STABILIZED,
+  FLIGHT_MODE_ACRO,
+  FLIGHT_MODE_ALTITUDE_HOLD,
+  FLIGHT_MODE_POSITION_HOLD,
+  FLIGHT_MODE_HOLD,
+  FLIGHT_MODE_MISSION,
+  FLIGHT_MODE_RETURN,
+  FLIGHT_MODE_LAND,
+  FLIGHT_MODE_TAKEOFF,
+  FLIGHT_MODE_GUIDED,
+  FLIGHT_MODE_OFFBOARD
+};
+
+@appendable
+enum LandedState {
+  LANDED_STATE_UNKNOWN,
+  LANDED_STATE_ON_GROUND,
+  LANDED_STATE_IN_AIR,
+  LANDED_STATE_TAKING_OFF,
+  LANDED_STATE_LANDING
+};
+
+@appendable
+enum GnssFix {
+  GNSS_FIX_UNKNOWN,
+  GNSS_FIX_NO_FIX,
+  GNSS_FIX_2D,
+  GNSS_FIX_3D,
+  GNSS_FIX_DGPS,
+  GNSS_FIX_RTK_FLOAT,
+  GNSS_FIX_RTK_FIXED
+};
+
+@appendable
+enum LinkState {
+  LINK_LOST,
+  LINK_RECOVERING,
+  LINK_CONNECTED,
+  LINK_DEGRADED
+};
+
+@appendable
+enum SigningState {
+  SIGNING_OFF,
+  SIGNING_ON,
+  SIGNING_FAILED
+};
+
+@appendable
+struct VehicleInfo {
+  @key uint32 vehicle_id;        // unit: -
+  Header header;
+  AutopilotKind autopilot;       // unit: -
+  string<32> firmware_version;   // unit: -
+  VehicleType vehicle_type;      // unit: -
+  octet mav_sysid;               // unit: -
+  octet mav_compid;              // unit: -
+  uint64 capabilities;           // unit: -
+  string<16> contract_version;   // unit: -
+};
+
+@appendable
+struct VehicleState {
+  @key uint32 vehicle_id;   // unit: -
+  Header header;
+  boolean armed;            // unit: -
+  FlightMode mode;          // unit: -
+  string<32> mode_raw;      // unit: -
+  LandedState landed;       // unit: -
+  octet system_status;      // unit: -
+};
+
+@appendable
+struct Pose {
+  @key uint32 vehicle_id;   // unit: -
+  Header header;
+  double lat_deg;           // unit: deg
+  double lon_deg;           // unit: deg
+  double alt_msl_m;         // unit: m
+  double alt_rel_home_m;    // unit: m
+  float q_w;                // unit: -
+  float q_x;                // unit: -
+  float q_y;                // unit: -
+  float q_z;                // unit: -
+  float vel_n_mps;          // unit: m/s
+  float vel_e_mps;          // unit: m/s
+  float vel_d_mps;          // unit: m/s
+  float heading_deg;        // unit: deg
+};
+
+@appendable
+struct Health {
+  @key uint32 vehicle_id;           // unit: -
+  Header header;
+  float battery_voltage_v;          // unit: V
+  float battery_current_a;          // unit: A
+  float battery_remaining_pct;      // unit: %
+  float battery_time_remaining_s;   // unit: s
+  GnssFix gnss_fix;                 // unit: -
+  octet gnss_satellites;            // unit: -
+  float gnss_hdop;                  // unit: -
+  uint32 sensors_present;           // unit: -
+  uint32 sensors_enabled;           // unit: -
+  uint32 sensors_healthy;           // unit: -
+  boolean estimator_ok;             // unit: -
+};
+
+@appendable
+struct LinkStatus {
+  @key uint32 vehicle_id;   // unit: -
+  Header header;
+  LinkState state;          // unit: -
+  uint64 state_since_ns;    // unit: ns
+  float rx_rate_hz;         // unit: Hz
+  float loss_pct;           // unit: %
+  uint32 last_rx_age_ms;    // unit: ms
+  SigningState signing;     // unit: -
+};
+
+};
+};
