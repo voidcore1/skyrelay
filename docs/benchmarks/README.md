@@ -43,4 +43,4 @@ Results land in `bench/results/<UTC date>T<HHMMSS>Z-<scenario>/` (git-ignored): 
 
 | Date | Scenario | Overall p50 / p95 / p99 | Samples |
 |---|---|---|---|
-| 2026-11-23 | [m1-clean](2026-11-23-m1-clean.md) | 0.085 / 0.169 / 0.212 ms | 4649 |
+| 2026-11-23 | [m1-clean](2026-11-23-m1-clean.md) | 0.118 / 0.203 / 0.260 ms | 4658 |
