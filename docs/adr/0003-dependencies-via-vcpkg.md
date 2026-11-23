@@ -24,7 +24,8 @@ I will use vcpkg in manifest mode.
   SHA512 are updated, patches that upstream has absorbed are dropped, and
   DDS-Security is not enabled yet. The overlays can be deleted once the
   registry catches up.
-- Presets locate vcpkg through `VCPKG_ROOT`, falling back to `~/vcpkg`.
+- Presets locate vcpkg through the `VCPKG_ROOT` environment variable, which
+  must be set (for example `export VCPKG_ROOT=~/vcpkg`) before configuring.
 - Third-party include directories are added as SYSTEM includes so the strict
   warning set (`-Werror -Wconversion`) applies only to SkyRelay's own code.
 
