@@ -220,8 +220,8 @@ TEST(Session, RequestsIntervalsDuringSetup) {
   }
 }
 
-// Review Focus 1: a second vehicle on the same port must never leak into this
-// vehicle's state.
+// A second vehicle on the same port must never leak into this vehicle's
+// state.
 TEST(Session, IgnoresForeignSysid) {
   Harness h;
   h.add_vehicle(1, kLatA);
@@ -285,7 +285,7 @@ TEST(Session, LinkLossAndRecovery) {
   EXPECT_EQ(h.session.counters().resetups, 2u);
 }
 
-// Review Focus 3: a reboot is a gap, then seq and time_boot_ms from zero.
+// A reboot is a gap, then seq and time_boot_ms starting again from zero.
 TEST(Session, RebootTriggersResetup) {
   Harness h;
   auto& v = h.add_vehicle(1);
@@ -329,7 +329,7 @@ TEST(Session, RebootTriggersResetup) {
   EXPECT_GT(dated, 0);
 }
 
-// Review Focus 3, fast case: the vehicle is back before the link is lost,
+// The fast case of a reboot: the vehicle is back before the link is lost,
 // so only the restart of time_boot_ms and seq gives the reboot away.
 TEST(Session, FastRebootTriggersResetup) {
   Harness h;

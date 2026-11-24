@@ -5,8 +5,10 @@
 #include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
 
+#include <cctype>
 #include <chrono>
 #include <deque>
+#include <set>
 #include <stdexcept>
 #include <unordered_map>
 #include <utility>
@@ -68,6 +70,37 @@ struct Core {
     acceptor.bind(cfg.listen);
     acceptor.listen(asio::socket_base::max_listen_connections);
     bound = acceptor.local_endpoint();
+
+    // The gateway's own origins, as a browser that loaded the station from
+    // it sends them. A browser leaves out the default port.
+    const std::string p = ":" + std::to_string(bound.port());
+    for (const char* host : {"127.0.0.1", "localhost", "[::1]"}) {
+      origins.insert(std::string("http://") + host + p);
+      if (bound.port() == 80) origins.insert(std::string("http://") + host);
+    }
+    for (const auto& o : cfg.allowed_origins) {
+      const auto parsed = parse_origin(o);
+      if (!parsed) throw std::invalid_argument("not an origin: '" + o + "'");
+      origins.insert(*parsed);
+    }
+  }
+
+  // Exactly one Host header, naming loopback with our port.
+  bool host_allowed(const Request& req) const {
+    return req.count(http::field::host) == 1 &&
+           host_is_local(req[http::field::host], bound.port());
+  }
+
+  // No Origin at all is not a browser (tools, tests); a browser's must be
+  // listed. Origin is lower-cased; it has no path, so that only touches the
+  // scheme and host.
+  bool origin_allowed(const Request& req) const {
+    const auto n = req.count(http::field::origin);
+    if (n == 0) return true;
+    if (n > 1) return false;
+    std::string o(req[http::field::origin]);
+    for (char& c : o) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return origins.contains(o);
   }
 
   uint64_t track(std::weak_ptr<Session> s) {
@@ -89,6 +122,7 @@ struct Core {
   Fanout fanout;
   tcp::acceptor acceptor;
   tcp::endpoint bound;  // with the real port when 0 was asked for
+  std::set<std::string> origins;  // allowed on /ws, lower-case
   asio::steady_timer poll_timer;
   asio::steady_timer accept_retry;
   std::unordered_map<uint64_t, std::weak_ptr<Session>> sessions;
@@ -310,18 +344,41 @@ class HttpSession : public Session, public std::enable_shared_from_this<HttpSess
       return;
     }
     Request req = parser_->release();
+    if (!core_.host_allowed(req)) {
+      spdlog::warn("refused {}: Host '{}' is not loopback with port {}",
+                   header_text(req.target()), header_text(req[http::field::host]),
+                   core_.bound.port());
+      send(text_response(req, http::status::forbidden,
+                         "forbidden: Host must be this gateway's loopback address and port\n"));
+      return;
+    }
     const auto segments = decode_target(req.target());
     const bool is_ws = segments && segments->size() == 1 && (*segments)[0] == "ws";
     if (is_ws && websocket::is_upgrade(req)) {
+      if (!core_.origin_allowed(req)) {
+        spdlog::warn("refused WebSocket from origin '{}' (see --allow-origin)",
+                     header_text(req[http::field::origin]));
+        send(text_response(req, http::status::forbidden,
+                           "forbidden: origin not allowed\n"));
+        return;
+      }
       stream_.expires_never();
       std::make_shared<WsSession>(stream_.release_socket(), core_)->run(std::move(req));
       finish();
       return;
     }
-    http::message_generator msg = respond(req, segments);
+    send(respond(req, segments));
+  }
+
+  void send(http::message_generator msg) {
     keep_alive_ = msg.keep_alive();
     beast::async_write(stream_, std::move(msg),
                        beast::bind_front_handler(&HttpSession::on_write, shared_from_this()));
+  }
+
+  // A header value for the log, cut short.
+  static std::string header_text(boost::core::string_view v) {
+    return std::string(v.substr(0, 120));
   }
 
   http::message_generator respond(const Request& req,
@@ -451,6 +508,74 @@ std::optional<tcp::endpoint> parse_listen(std::string_view text) {
 
 bool is_loopback(const asio::ip::address& a) {
   return a.is_v4() ? a.to_v4().is_loopback() : a.to_v6().is_loopback();
+}
+
+bool host_is_local(std::string_view host, unsigned short port) {
+  std::string h(host);
+  for (char& c : h) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  std::string_view name;
+  std::string_view port_text;
+  bool has_port = false;
+  bool v6 = false;
+  const std::string_view hv(h);
+  if (!hv.empty() && hv.front() == '[') {
+    const auto close = hv.find(']');
+    if (close == std::string_view::npos) return false;
+    name = hv.substr(1, close - 1);
+    const std::string_view rest = hv.substr(close + 1);
+    if (!rest.empty()) {
+      if (rest.front() != ':') return false;
+      port_text = rest.substr(1);
+      has_port = true;
+    }
+    v6 = true;
+  } else {
+    const auto colon = hv.rfind(':');
+    name = hv.substr(0, colon);
+    if (colon != std::string_view::npos) {
+      port_text = hv.substr(colon + 1);
+      has_port = true;
+    }
+  }
+
+  unsigned value = 80;  // no port in Host means the default one
+  if (has_port) {
+    if (port_text.empty() || port_text.size() > 5) return false;
+    value = 0;
+    for (char c : port_text) {
+      if (c < '0' || c > '9') return false;
+      value = value * 10 + static_cast<unsigned>(c - '0');
+    }
+  }
+  if (value != port) return false;
+
+  if (!v6 && name == "localhost") return true;
+  error_code ec;
+  if (v6) {
+    const auto a = asio::ip::make_address_v6(std::string(name), ec);
+    return !ec && a.is_loopback();
+  }
+  const auto a = asio::ip::make_address_v4(std::string(name), ec);
+  return !ec && a.is_loopback();
+}
+
+std::optional<std::string> parse_origin(std::string_view text) {
+  std::string o(text);
+  for (char& c : o) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  std::string_view rest(o);
+  if (rest.starts_with("http://")) {
+    rest.remove_prefix(7);
+  } else if (rest.starts_with("https://")) {
+    rest.remove_prefix(8);
+  } else {
+    return std::nullopt;
+  }
+  // The authority only: no path (not even "/"), query, fragment, user info
+  // or whitespace, any of which would make it never equal a browser's Origin.
+  if (rest.empty() || rest.find_first_of("/?#@ \t") != std::string_view::npos) {
+    return std::nullopt;
+  }
+  return o;
 }
 
 struct WsServer::Impl : Core {

@@ -3,7 +3,7 @@
 idlcxx_generate(TARGET skyrelay_idl
   FILES ${PROJECT_SOURCE_DIR}/idl/skyrelay/v1/types.idl
   WARNINGS no-implicit-extensibility)
-# Generated code is not ours to hold to -Werror -Wconversion (R8).
+# Generated code is not ours to hold to -Werror -Wconversion.
 skyrelay_system_includes(skyrelay_idl)
 get_target_property(_idl_inc skyrelay_idl INTERFACE_INCLUDE_DIRECTORIES)
 if(_idl_inc)

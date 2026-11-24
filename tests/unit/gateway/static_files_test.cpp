@@ -7,7 +7,8 @@
 
 using namespace skyrelay::gateway;
 
-TEST(StaticFiles, RangeTable) {   // Review Focus 5 — size 1000
+// The Range answers PMTiles depends on, for a 1000-byte file.
+TEST(StaticFiles, RangeTable) {
   EXPECT_EQ(parse_range("", 1000).kind, RangeKind::Full);
   auto a = parse_range("bytes=0-499", 1000);  EXPECT_EQ(a.kind, RangeKind::Partial); EXPECT_EQ(a.range.last, 499u);
   auto b = parse_range("bytes=500-", 1000);   EXPECT_EQ(b.range.first, 500u); EXPECT_EQ(b.range.last, 999u);

@@ -8,18 +8,51 @@ participant that reads the five M1 telemetry topics (see
 - the offline map data from its data directory;
 - a WebSocket that streams telemetry to every connected browser as JSON.
 
-**INSECURE PREVIEW.** There is no TLS and no authentication in M1. The gateway
-only listens on loopback (127.0.0.0/8 or `::1`); any other `--listen` address
-makes it exit with code 2 and
-`refusing non-loopback listen address without TLS (arrives in v0.3)`.
-
 ```
 skyrelay-gateway --listen 127.0.0.1:8080 --web-root web/station/dist --data-dir data \
+                 [--allow-origin http://localhost:5173] \
                  [--domain 42 --partition default --insecure-allow-network]
 ```
 
 `--insecure-allow-network` only affects DDS, the same way as for the bridge.
-The HTTP side stays on loopback either way.
+
+## Security in the preview
+
+**INSECURE PREVIEW.** There is no TLS and no authentication in M1; both arrive
+in v0.3. Until then the gateway relies on three checks.
+
+- **It listens on loopback only** (127.0.0.0/8 or `::1`). Any other `--listen`
+  address makes it exit with code 2 and
+  `refusing non-loopback listen address without TLS (arrives in v0.3)`. That
+  keeps other machines out, but not web pages running in the operator's own
+  browser, which is what the next two checks are for.
+- **Host check, on every request.** The `Host` header must name loopback with
+  the port the gateway actually listens on: a 127.0.0.0/8 literal, `[::1]` or
+  `localhost` (case-insensitive), such as `127.0.0.1:8080` or
+  `localhost:8080`. A `Host` without a port counts as port 80. Anything else,
+  or no `Host` at all, gets `403`. This stops DNS rebinding, where a page on
+  some domain re-points its own name at 127.0.0.1 and then reads the gateway
+  as if it were its own site; its requests still carry its own name in `Host`.
+- **Origin check, on the WebSocket.** Browsers do not apply the same-origin
+  policy to WebSockets, so without this any page I visit could open
+  `ws://127.0.0.1:8080/ws` and read live positions. A `/ws` upgrade is accepted
+  only when `Origin` is absent (not a browser: tools, scripts, tests) or is
+  the gateway's own origin, `http://127.0.0.1:<port>`,
+  `http://localhost:<port>` or `http://[::1]:<port>`, or is given with
+  `--allow-origin`. Anything else gets `403` before the upgrade. Origins are
+  compared as exact strings after lower-casing the scheme and host, so
+  `http://localhost:5173/` (with a slash) or another port is a different
+  origin.
+
+`--allow-origin` can be repeated, and it takes `http://` or `https://` plus host
+and optional port, nothing else. Its use is the station's development server:
+run the gateway with `--allow-origin http://localhost:5173`, and have the dev
+server's proxy rewrite `Host` to the gateway's (`changeOrigin: true` in Vite),
+or the Host check refuses the proxied requests.
+
+An open WebSocket that goes quiet is not kept forever: the gateway pings it
+when it has been idle for a while and closes it if nothing at all has arrived
+for 300 s.
 
 ## HTTP
 

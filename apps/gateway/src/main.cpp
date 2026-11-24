@@ -22,6 +22,7 @@
 #include <string>
 #include <thread>
 #include <utility>
+#include <vector>
 
 #include "dds_feed.hpp"
 #include "skyrelay/common/clock.hpp"
@@ -46,6 +47,7 @@ struct Options {
   asio::ip::tcp::endpoint listen;
   std::string web_root;
   std::string data_dir;
+  std::vector<std::string> allowed_origins;  // lower-cased by parse_origin
   sdds::DomainConfig dds;
 };
 
@@ -102,6 +104,7 @@ int run(const Options& o) {
   cfg.web_root = o.web_root;
   cfg.data_dir = o.data_dir;
   cfg.latched_topics = gw::DdsFeed::latched_topics();
+  cfg.allowed_origins = o.allowed_origins;
   gw::WsServer server(io, std::move(cfg), clock);
   server.start();
 
@@ -122,6 +125,9 @@ int run(const Options& o) {
   });
   spdlog::info("listening on http://{} (web root {}, data dir {})",
                describe(server.local_endpoint()), o.web_root, o.data_dir);
+  for (const auto& origin : o.allowed_origins) {
+    spdlog::info("WebSocket also allowed from origin {}", origin);
+  }
 
   main_io.run();
 
@@ -161,6 +167,10 @@ int main(int argc, char** argv) {
   app.add_option("--domain", o.dds.domain_id, "DDS domain id")->capture_default_str();
   app.add_option("--partition", o.dds.partition, "DDS data partition")
       ->capture_default_str();
+  std::vector<std::string> origins;
+  app.add_option("--allow-origin", origins,
+                 "Also accept /ws from this browser origin, e.g. "
+                 "http://localhost:5173 for a development server (repeatable)");
   app.add_flag("--insecure-allow-network", o.dds.allow_network,
                "Let DDS use non-loopback interfaces. There is no DDS "
                "security in this preview.");
@@ -177,6 +187,16 @@ int main(int argc, char** argv) {
     return 2;
   }
   o.listen = *ep;
+  for (const auto& origin : origins) {
+    const auto parsed = gw::parse_origin(origin);
+    if (!parsed) {
+      spdlog::error("--allow-origin {}: expected scheme://host[:port] with http or "
+                    "https and nothing after it, such as http://localhost:5173",
+                    origin);
+      return 2;
+    }
+    o.allowed_origins.push_back(*parsed);
+  }
 
   try {
     return run(o);

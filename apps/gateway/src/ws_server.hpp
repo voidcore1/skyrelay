@@ -23,17 +23,39 @@ std::optional<boost::asio::ip::tcp::endpoint> parse_listen(std::string_view text
 // 127.0.0.0/8 or ::1.
 bool is_loopback(const boost::asio::ip::address&);
 
+// True for a Host header value that names this machine's loopback interface
+// on `port`: a 127.0.0.0/8 literal, [::1] or localhost, case-insensitive. A
+// missing port means 80. Anything else is what a DNS-rebinding page would
+// send, with its own name in Host.
+bool host_is_local(std::string_view host, unsigned short port);
+
+// An origin as given to --allow-origin: "http://host[:port]" or
+// "https://host[:port]", nothing after the authority. Returns it lower-cased,
+// which is how a browser's Origin header is compared, or nullopt if it is not
+// of that form.
+std::optional<std::string> parse_origin(std::string_view text);
+
 struct ServerConfig {
   boost::asio::ip::tcp::endpoint listen;
   std::filesystem::path web_root;
   std::filesystem::path data_dir;
   // Topics whose latest value per vehicle a new WebSocket client gets.
   std::vector<std::string> latched_topics;
+  // Browser origins allowed on /ws besides the gateway's own, such as a
+  // development server. Each must pass parse_origin().
+  std::vector<std::string> allowed_origins;
 };
 
 // HTTP and WebSocket server for the web station. GET/HEAD serve the station
 // and the map data (see static_files.hpp), /healthz answers "ok", and /ws is
 // the telemetry WebSocket described in docs/gateway-protocol.md.
+//
+// Binding to loopback keeps other machines out, but not web pages in the
+// operator's own browser: a page may open a WebSocket to any address, and with
+// DNS rebinding it can make plain HTTP requests here too. So every request
+// must carry a loopback Host with this server's port (host_is_local), and a
+// /ws upgrade from a browser must come from the gateway's own origin or an
+// allowed one. Both are refused with 403.
 //
 // Everything runs on the thread that runs the io_context. The Fanout, the
 // sessions and the acceptor are only touched there, so nothing is locked.
@@ -48,8 +70,9 @@ class WsServer {
   };
 
   // Binds and listens straight away, so a port in use fails here. Throws
-  // std::invalid_argument for a non-loopback address: there is no TLS or
-  // authentication in this preview.
+  // std::invalid_argument for a non-loopback address (there is no TLS or
+  // authentication in this preview) or an allowed origin that parse_origin()
+  // rejects.
   WsServer(boost::asio::io_context& io, ServerConfig config, const Clock& clock);
   // Only once the io_context is no longer running.
   ~WsServer();

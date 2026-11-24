@@ -11,6 +11,7 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <csignal>
 #include <cstdint>
 #include <ctime>
 #include <deque>
@@ -23,6 +24,7 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "dds_feed.hpp"
@@ -166,15 +168,41 @@ struct HttpReply {
   std::string header(http::field f) const { return std::string(headers[f]); }
 };
 
-// One request on a fresh connection, bounded by a 5 s timeout.
+using Headers = std::vector<std::pair<http::field, std::string>>;
+
+// What a browser that loaded the station from the gateway sends as Host.
+std::string host_of(const tcp::endpoint& ep) {
+  return "127.0.0.1:" + std::to_string(ep.port());
+}
+
+// The headers of a WebSocket upgrade request, for checking how the gateway
+// answers one without completing the handshake.
+Headers upgrade_headers() {
+  return {{http::field::upgrade, "websocket"},
+          {http::field::connection, "Upgrade"},
+          {http::field::sec_websocket_key, "dGhlIHNhbXBsZSBub25jZQ=="},
+          {http::field::sec_websocket_version, "13"}};
+}
+
+// One request on a fresh connection, bounded by a 5 s timeout. Host is the
+// gateway's own unless `extra` sets it; an empty value in `extra` removes
+// that header.
 HttpReply http_request(const tcp::endpoint& ep, http::verb verb,
-                       const std::string& target, const std::string& range = {}) {
+                       const std::string& target, const std::string& range = {},
+                       const Headers& extra = {}) {
   asio::io_context io;
   beast::tcp_stream stream(io);
   stream.expires_after(5s);
   http::request<http::empty_body> req{verb, target, 11};
-  req.set(http::field::host, "127.0.0.1");
+  req.set(http::field::host, host_of(ep));
   if (!range.empty()) req.set(http::field::range, range);
+  for (const auto& [field, value] : extra) {
+    if (value.empty()) {
+      req.erase(field);
+    } else {
+      req.set(field, value);
+    }
+  }
   beast::flat_buffer buf;
   http::response_parser<http::string_body> parser;
   parser.body_limit(16 * 1024 * 1024);
@@ -213,8 +241,15 @@ class WsClient {
     SteadyClock::time_point at;
   };
 
-  // receive_buffer > 0 shrinks the socket's receive buffer before connecting.
-  explicit WsClient(const tcp::endpoint& ep, int receive_buffer = 0) : ws_(io_) {
+  // receive_buffer > 0 shrinks the socket's receive buffer before connecting;
+  // a non-empty origin is sent as the Origin header, as a browser would.
+  explicit WsClient(const tcp::endpoint& ep, int receive_buffer = 0,
+                    const std::string& origin = {})
+      : ws_(io_) {
+    if (!origin.empty()) {
+      ws_.set_option(websocket::stream_base::decorator(
+          [origin](websocket::request_type& req) { req.set(http::field::origin, origin); }));
+    }
     auto& stream = beast::get_lowest_layer(ws_);
     stream.socket().open(ep.protocol());
     if (receive_buffer > 0) {
@@ -227,7 +262,7 @@ class WsClient {
         ec = e;
         return;
       }
-      ws_.async_handshake("127.0.0.1", "/ws", [&](beast::error_code e2) { ec = e2; });
+      ws_.async_handshake(host_of(ep), "/ws", [&](beast::error_code e2) { ec = e2; });
     });
     io_.run();
     io_.restart();
@@ -342,6 +377,97 @@ class WsClient {
   std::condition_variable cv_;
   std::deque<std::pair<std::string, SteadyClock::time_point>> raw_;
   bool closed_ = false;
+};
+
+// The real skyrelay-gateway executable, with stdout and stderr captured.
+class GatewayProcess {
+ public:
+  explicit GatewayProcess(const std::vector<std::string>& args) {
+    int fds[2];
+    if (::pipe(fds) != 0) throw std::runtime_error("pipe failed");
+    posix_spawn_file_actions_t fa;
+    posix_spawn_file_actions_init(&fa);
+    posix_spawn_file_actions_adddup2(&fa, fds[1], 1);
+    posix_spawn_file_actions_adddup2(&fa, fds[1], 2);
+    posix_spawn_file_actions_addclose(&fa, fds[0]);
+    posix_spawn_file_actions_addclose(&fa, fds[1]);
+    std::vector<std::string> owned{SKYRELAY_GATEWAY_EXE};
+    owned.insert(owned.end(), args.begin(), args.end());
+    std::vector<char*> argv;
+    for (auto& a : owned) argv.push_back(a.data());
+    argv.push_back(nullptr);
+    const int rc = posix_spawn(&pid_, owned[0].c_str(), &fa, nullptr, argv.data(), environ);
+    posix_spawn_file_actions_destroy(&fa);
+    ::close(fds[1]);
+    fd_ = fds[0];
+    if (rc != 0) {
+      ::close(fd_);
+      throw std::runtime_error("posix_spawn failed");
+    }
+  }
+
+  ~GatewayProcess() {
+    if (!reaped_) {
+      ::kill(pid_, SIGKILL);
+      int status = 0;
+      ::waitpid(pid_, &status, 0);
+    }
+    if (fd_ >= 0) ::close(fd_);
+  }
+
+  GatewayProcess(const GatewayProcess&) = delete;
+  GatewayProcess& operator=(const GatewayProcess&) = delete;
+
+  pid_t pid() const { return pid_; }
+  const std::string& output() const { return out_; }
+
+  // Reads output until it contains `needle`; false on timeout or EOF first.
+  bool read_until(const std::string& needle, std::chrono::milliseconds timeout) {
+    const auto end = SteadyClock::now() + timeout;
+    while (out_.find(needle) == std::string::npos) {
+      if (SteadyClock::now() >= end || !read_some(100)) return false;
+    }
+    return true;
+  }
+
+  // Waits for the process to exit, reading its output meanwhile so it never
+  // blocks on a full pipe. The wait status, or nullopt on timeout.
+  std::optional<int> wait_exit(std::chrono::milliseconds timeout) {
+    const auto end = SteadyClock::now() + timeout;
+    while (SteadyClock::now() < end) {
+      read_some(10);
+      int status = 0;
+      if (::waitpid(pid_, &status, WNOHANG) == pid_) {
+        reaped_ = true;
+        while (read_some(0)) {
+        }
+        return status;
+      }
+    }
+    return std::nullopt;
+  }
+
+ private:
+  // False at EOF or on error; true otherwise, also when nothing came.
+  bool read_some(int timeout_ms) {
+    if (fd_ < 0) return false;
+    pollfd p{fd_, POLLIN, 0};
+    if (::poll(&p, 1, timeout_ms) <= 0) return true;
+    char buf[4096];
+    const ssize_t n = ::read(fd_, buf, sizeof buf);
+    if (n <= 0) {
+      ::close(fd_);
+      fd_ = -1;
+      return false;
+    }
+    out_.append(buf, static_cast<size_t>(n));
+    return true;
+  }
+
+  pid_t pid_ = -1;
+  int fd_ = -1;
+  std::string out_;
+  bool reaped_ = false;
 };
 
 bool is_pose_of(const json& s, uint32_t vehicle_id) {
@@ -463,11 +589,12 @@ TEST(Gateway, StreamsPoseJson) {
 }
 
 TEST(Gateway, SlowClientDoesNotStallOthers) {
-  // Review Focus 4. Client A completes the handshake and never reads again;
-  // its receive buffer is tiny, so the gateway's writes to it back up. 1999
-  // poses for distinct vehicles go out first (about 1 MB of JSON for each
-  // client, far more than A's socket buffers hold), then the 2000th write.
-  // Client B must get that last pose within 200 ms of the write.
+  // A slow browser must never stall the others. Client A completes the
+  // handshake and never reads again; its receive buffer is tiny, so the
+  // gateway's writes to it back up. 1999 poses for distinct vehicles go out
+  // first (about 1 MB of JSON for each client, far more than A's socket
+  // buffers hold), then the 2000th write. Client B must get that last pose
+  // within 200 ms of the write.
   TestGateway gw;
   WsClient a(gw.endpoint(), 4096);
   WsClient b(gw.endpoint());
@@ -514,54 +641,143 @@ TEST(Gateway, PingPong) {
 }
 
 TEST(Gateway, RefusesNonLoopbackListen) {
-  const fs::path dir = fs::temp_directory_path();
+  const std::string dir = fs::temp_directory_path().string();
   for (const std::string listen : {"0.0.0.0:0", "[::]:0", "192.0.2.1:8080"}) {
-    int fds[2];
-    ASSERT_EQ(::pipe(fds), 0);
-    posix_spawn_file_actions_t fa;
-    posix_spawn_file_actions_init(&fa);
-    posix_spawn_file_actions_adddup2(&fa, fds[1], 1);
-    posix_spawn_file_actions_adddup2(&fa, fds[1], 2);
-    posix_spawn_file_actions_addclose(&fa, fds[0]);
-    posix_spawn_file_actions_addclose(&fa, fds[1]);
-    std::string exe = SKYRELAY_GATEWAY_EXE;
-    std::string a1 = "--listen", a2 = listen, a3 = "--web-root", a4 = dir.string(),
-                a5 = "--data-dir", a6 = dir.string();
-    char* argv[] = {exe.data(), a1.data(), a2.data(), a3.data(), a4.data(),
-                    a5.data(), a6.data(), nullptr};
-    pid_t pid = 0;
-    const int rc = posix_spawn(&pid, exe.c_str(), &fa, nullptr, argv, environ);
-    posix_spawn_file_actions_destroy(&fa);
-    ::close(fds[1]);
-    ASSERT_EQ(rc, 0);
-
-    // Read until the child closes its end; give up after 10 s.
-    std::string out;
-    const auto end = SteadyClock::now() + 10s;
-    char buf[512];
-    while (SteadyClock::now() < end) {
-      pollfd p{fds[0], POLLIN, 0};
-      if (::poll(&p, 1, 100) <= 0) continue;
-      const ssize_t n = ::read(fds[0], buf, sizeof buf);
-      if (n <= 0) break;
-      out.append(buf, static_cast<size_t>(n));
-    }
-    ::close(fds[0]);
-    int status = 0;
-    pid_t reaped = 0;
-    while ((reaped = ::waitpid(pid, &status, WNOHANG)) == 0 && SteadyClock::now() < end) {
-      std::this_thread::sleep_for(10ms);
-    }
-    if (reaped == 0) {
-      ::kill(pid, SIGKILL);
-      ::waitpid(pid, &status, 0);
-      ADD_FAILURE() << listen << ": gateway did not exit";
-      continue;
-    }
-    ASSERT_TRUE(WIFEXITED(status)) << listen;
-    EXPECT_EQ(WEXITSTATUS(status), 2) << listen << "\n" << out;
-    EXPECT_NE(out.find("refusing non-loopback listen address without TLS (arrives in v0.3)"),
+    GatewayProcess g({"--listen", listen, "--web-root", dir, "--data-dir", dir});
+    const auto status = g.wait_exit(10s);
+    ASSERT_TRUE(status) << listen << ": gateway did not exit\n" << g.output();
+    ASSERT_TRUE(WIFEXITED(*status)) << listen;
+    EXPECT_EQ(WEXITSTATUS(*status), 2) << listen << "\n" << g.output();
+    EXPECT_NE(g.output().find(
+                  "refusing non-loopback listen address without TLS (arrives in v0.3)"),
               std::string::npos)
-        << out;
+        << g.output();
   }
+}
+
+// DNS rebinding: a page on evil.example resolves its own name to 127.0.0.1,
+// and the browser then sends its requests here with Host: evil.example.
+TEST(Gateway, RejectsForeignHost) {
+  TestGateway gw;
+  const auto ep = gw.endpoint();
+  const std::string port = std::to_string(ep.port());
+  for (const std::string& host : std::vector<std::string>
+       {"evil.example:" + port, "evil.example", "localhost.evil.example:" + port,
+        "127.0.0.1",  // no port means 80
+        "127.0.0.1:1", "127.0.0.1:" + port + "0", "0.0.0.0:" + port, "[::2]:" + port,
+        "[::1]" + port}) {
+    auto r = http_request(ep, http::verb::get, "/healthz", {}, {{http::field::host, host}});
+    EXPECT_EQ(r.status, 403u) << "Host: " << host;
+    EXPECT_EQ(r.header(http::field::content_type), "text/plain; charset=utf-8");
+  }
+  // No Host at all.
+  EXPECT_EQ(http_request(ep, http::verb::get, "/healthz", {}, {{http::field::host, ""}}).status,
+            403u);
+  // The same for static files and for the WebSocket, whatever the Origin.
+  EXPECT_EQ(http_request(ep, http::verb::get, "/tiles/t.bin", {},
+                         {{http::field::host, "evil.example:" + port}})
+                .status,
+            403u);
+  auto up = upgrade_headers();
+  up.emplace_back(http::field::host, "evil.example:" + port);
+  up.emplace_back(http::field::origin, "http://127.0.0.1:" + port);
+  EXPECT_EQ(http_request(ep, http::verb::get, "/ws", {}, up).status, 403u);
+}
+
+TEST(Gateway, AcceptsLocalhostHost) {
+  TestGateway gw;
+  const auto ep = gw.endpoint();
+  const std::string port = std::to_string(ep.port());
+  for (const std::string& host : std::vector<std::string> {"localhost:" + port, "LocalHost:" + port, "127.0.0.1:" + port,
+                                 "127.0.0.2:" + port, "[::1]:" + port}) {
+    auto r = http_request(ep, http::verb::get, "/healthz", {}, {{http::field::host, host}});
+    EXPECT_EQ(r.status, 200u) << "Host: " << host;
+    EXPECT_EQ(r.body, "ok") << "Host: " << host;
+  }
+}
+
+// A WebSocket is not covered by the same-origin policy: without this check
+// any page the operator visits could read live positions.
+TEST(Gateway, RejectsForeignOrigin) {
+  TestGateway gw;
+  const auto ep = gw.endpoint();
+  const std::string port = std::to_string(ep.port());
+  for (const std::string& origin : std::vector<std::string>
+       {"http://evil.example", "null", "http://127.0.0.1:1", "https://127.0.0.1:" + port,
+        "http://127.0.0.1:" + port + "/", "http://localhost.evil.example:" + port}) {
+    auto up = upgrade_headers();
+    up.emplace_back(http::field::origin, origin);
+    auto r = http_request(ep, http::verb::get, "/ws", {}, up);
+    EXPECT_EQ(r.status, 403u) << "Origin: " << origin;
+  }
+  EXPECT_THROW(WsClient(ep, 0, "http://evil.example"), std::runtime_error);
+  EXPECT_EQ(gw.server().counters().ws_clients.load(), 0u);
+}
+
+TEST(Gateway, AcceptsOwnOrigin) {
+  TestGateway gw;
+  const auto ep = gw.endpoint();
+  const std::string port = std::to_string(ep.port());
+  // Scheme and host compare case-insensitively.
+  for (const std::string& origin : std::vector<std::string>
+       {"http://127.0.0.1:" + port, "http://localhost:" + port, "HTTP://LocalHost:" + port,
+        "http://[::1]:" + port}) {
+    WsClient c(ep, 0, origin);
+    c.start_reading();
+    auto hello = c.next(5s);
+    ASSERT_TRUE(hello) << "Origin: " << origin;
+    EXPECT_EQ(hello->body["type"], "hello");
+  }
+  // No Origin: not a browser, so there is no page to guard against.
+  WsClient tool(ep);
+  tool.start_reading();
+  ASSERT_TRUE(tool.next(5s));
+}
+
+TEST(Gateway, AcceptsAllowedOrigin) {
+  // Through the real executable, so the --allow-origin flag is covered too.
+  const std::string dir = fs::temp_directory_path().string();
+  {
+    GatewayProcess bad({"--listen", "127.0.0.1:0", "--web-root", dir, "--data-dir", dir,
+                        "--allow-origin", "http://localhost:5173/"});
+    const auto status = bad.wait_exit(10s);
+    ASSERT_TRUE(status) << bad.output();
+    EXPECT_TRUE(WIFEXITED(*status) && WEXITSTATUS(*status) == 2) << bad.output();
+  }
+
+  GatewayProcess g({"--listen", "127.0.0.1:0", "--web-root", dir, "--data-dir", dir,
+                    "--partition", "gateway-test-origin-" + std::to_string(::getpid()),
+                    "--allow-origin", "http://LOCALHOST:5173", "--allow-origin",
+                    "https://station.example"});
+  // The line ends with " (web root ...", so the port is complete once that
+  // has arrived.
+  ASSERT_TRUE(g.read_until("(web root", 10s)) << g.output();
+  const std::string marker = "listening on http://127.0.0.1:";
+  const auto at = g.output().find(marker);
+  ASSERT_NE(at, std::string::npos) << g.output();
+  const auto port = static_cast<unsigned short>(std::stoul(g.output().substr(at + marker.size())));
+  const tcp::endpoint ep(asio::ip::make_address("127.0.0.1"), port);
+
+  WsClient dev_server(ep, 0, "http://localhost:5173");
+  dev_server.start_reading();
+  auto hello = dev_server.next(5s);
+  ASSERT_TRUE(hello);
+  EXPECT_EQ(hello->body["type"], "hello");
+  WsClient other(ep, 0, "https://station.example");
+  other.start_reading();
+  ASSERT_TRUE(other.next(5s));
+
+  // Only what is listed: another port of the same host is still foreign.
+  auto up = upgrade_headers();
+  up.emplace_back(http::field::origin, "http://localhost:5174");
+  EXPECT_EQ(http_request(ep, http::verb::get, "/ws", {}, up).status, 403u);
+
+  // And it shuts down promptly with clients still connected.
+  const auto t0 = SteadyClock::now();
+  ASSERT_EQ(::kill(g.pid(), SIGTERM), 0);
+  const auto status = g.wait_exit(10s);
+  const auto took = std::chrono::duration_cast<std::chrono::milliseconds>(SteadyClock::now() - t0);
+  ASSERT_TRUE(status) << g.output();
+  EXPECT_TRUE(WIFEXITED(*status) && WEXITSTATUS(*status) == 0) << g.output();
+  EXPECT_LT(took, 1000ms) << g.output();
 }
