@@ -13,10 +13,11 @@ implementations of it.
 **`v0.1.0-preview` — INSECURE PREVIEW.** There is no security yet: no
 DDS-Security, no MAVLink signing, no TLS or authentication at the gateway. DDS
 and the gateway are confined to loopback, and the station shows an INSECURE
-PREVIEW banner, which cannot be closed, whenever it talks to a gateway. The bridge's MAVLink ports (UDP 14540–14543)
-listen on every interface so the simulation containers can reach them, and
-MAVLink is unsigned, so run it on a machine and network you trust and do not
-expose it. Security arrives in M3 (see [Roadmap](#roadmap)).
+PREVIEW banner, which cannot be closed, whenever it talks to a gateway. The
+bridge's MAVLink ports (UDP 14540–14543) listen on every interface so the
+simulation containers can reach them, and MAVLink is unsigned, so run it on a
+machine and network you trust and do not expose it. Security arrives in M3
+(see [Roadmap](#roadmap)).
 
 What works today, telemetry only:
 
@@ -35,8 +36,8 @@ What works today, telemetry only:
   HUD. A standalone demo with synthetic data needs nothing else.
 - **Benchmark:** `skyrelay-bench-probe` and `bench/run.sh`, with a p99 gate.
 - **CI:** builds and unit tests on Ubuntu 24.04 (GCC 13) and 26.04 (GCC 15), a
-  licence check on every dependency, and a nightly end-to-end simulation
-  benchmark.
+  licence check on every C++ dependency installed through vcpkg, and a nightly
+  end-to-end simulation benchmark.
 
 Only PX4 has been tested. The ArduPilot adapter, commands and missions come in
 M2.
@@ -98,7 +99,9 @@ design, including the parts not built yet, is in
 From the repository root:
 
 1. Fetch the offline map region into `data/`. After this the station needs no
-   internet.
+   internet. The tiles come from a Protomaps daily build, and those are kept
+   for only about two months; if the pinned one is gone, pick a newer date
+   with `PROTOMAPS_BUILD=YYYYMMDD tools/maps/fetch-region.sh`.
 
    ```sh
    tools/maps/fetch-region.sh
@@ -175,7 +178,9 @@ not an end-to-end latency. The vehicle-side method arrives with the link
 emulators in M4. Full report:
 [M1 clean, 2026-11-23](docs/benchmarks/2026-11-23-m1-clean.md).
 
-To reproduce it (needs Docker and the build from step 2 above):
+To reproduce it, stop the quickstart stack first (bridge, gateway and
+`docker compose … down`), because the benchmark starts its own simulation and
+bridge on the same UDP ports. It needs Docker and the build from step 2 above:
 
 ```sh
 bench/run.sh m1-clean
@@ -225,5 +230,8 @@ Releases before M3 are tagged `v0.x.0-preview` and are insecure. Details are in
 ## Licence
 
 [Apache-2.0](LICENSE). Everything linked into the SkyRelay binaries is under a
-permissive licence, and CI fails if any installed dependency is under the GPL
-or AGPL (`tools/check_licenses.py`).
+permissive licence: the C++ dependencies installed through vcpkg, and the
+vendored MAVLink C headers (MIT, see `third_party/mavlink/NOTICE`). CI fails if
+any port installed through vcpkg is under the GPL or AGPL
+(`tools/check_licenses.py`). The vendored headers and the web station's npm
+packages are not part of that check.

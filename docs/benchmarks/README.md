@@ -47,8 +47,11 @@ night at 02:00 UTC, on demand from the Actions tab, and on pull requests that
 touch `apps/`, `lib/`, `sim/`, `bench/`, `config/`, `idl/` or the workflow
 itself. The job:
 
-1. builds the `release` preset, with the same vcpkg setup and binary cache as
-   the main CI;
+1. builds the `release` preset, setting vcpkg up and caching its binary
+   archives the same way as the main CI, but in a cache of its own, since it
+   builds on the runner itself rather than in the main CI's containers. That
+   cache is saved even when the build fails, so a failed cold run still keeps
+   the ports it managed to build;
 2. builds the PX4 image (`docker compose -f sim/sih-px4-4/compose.yaml build`);
 3. runs `BUILD_DIR=build/release bench/run.sh m1-clean`, so the job fails
    exactly when the gate does.

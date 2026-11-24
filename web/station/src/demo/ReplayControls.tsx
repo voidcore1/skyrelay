@@ -19,7 +19,7 @@ export function ReplayControls({ elapsedMs, playing, ended, link, onToggle, onRe
     <div className="demo-replay" role="group" aria-label="Synthetic link replay">
       <div className="demo-replay-readout">
         <span className="demo-replay-label" aria-live="polite" aria-atomic="true">
-          {ended ? 'Replay complete' : 'Synthetic link replay'}
+          {ended ? 'Synthetic replay complete' : 'Synthetic link replay'}
         </span>
         <span className="demo-replay-state" aria-live="polite" aria-atomic="true" style={{ color: LINK_COLOR[link] }}>
           {vehicle} {link}
