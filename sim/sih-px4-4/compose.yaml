@@ -1,6 +1,12 @@
 # Four headless PX4 v1.17.0 SIH quadrotors, one container (and network
 # namespace) each. Instance N has MAVLink sysid N+1 and sends its offboard
 # link to the host on UDP 14540+N.
+#
+# Each vehicle gets its own home, on the corners of a square with sides of
+# about 45 m centred on PX4's default home (47.397742 N, 8.545594 E), clockwise
+# from north-east. 0.0002 deg of latitude is 22.2 m and 0.0003 deg of longitude
+# 22.6 m here. PX4's px4-rc.sihsim turns PX4_HOME_LAT/LON into the
+# SIH_LOC_LAT0/LON0 parameters; the altitude stays at the SIH default.
 
 x-px4: &px4
   image: skyrelay/px4-sitl:1.17.0
@@ -21,19 +27,19 @@ services:
     build:
       context: ../px4-sitl
     pull_policy: build
-    environment: {INSTANCE: "0"}
+    environment: {INSTANCE: "0", PX4_HOME_LAT: "47.397942", PX4_HOME_LON: "8.545894"}
   px4-1:
     <<: *px4
     depends_on: [px4-0]
-    environment: {INSTANCE: "1"}
+    environment: {INSTANCE: "1", PX4_HOME_LAT: "47.397542", PX4_HOME_LON: "8.545894"}
   px4-2:
     <<: *px4
     depends_on: [px4-0]
-    environment: {INSTANCE: "2"}
+    environment: {INSTANCE: "2", PX4_HOME_LAT: "47.397542", PX4_HOME_LON: "8.545294"}
   px4-3:
     <<: *px4
     depends_on: [px4-0]
-    environment: {INSTANCE: "3"}
+    environment: {INSTANCE: "3", PX4_HOME_LAT: "47.397942", PX4_HOME_LON: "8.545294"}
 
 networks:
   skyrelay-sim:

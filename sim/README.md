@@ -47,12 +47,19 @@ docker compose -f sim/sih-px4-4/compose.yaml build --no-cache
 
 ## Ports
 
-| Service | Instance | MAVLink sysid | Host UDP port |
-|---|---|---|---|
-| `px4-0` | 0 | 1 | 14540 |
-| `px4-1` | 1 | 2 | 14541 |
-| `px4-2` | 2 | 3 | 14542 |
-| `px4-3` | 3 | 4 | 14543 |
+| Service | Instance | MAVLink sysid | Host UDP port | Home (lat, lon) |
+|---|---|---|---|---|
+| `px4-0` | 0 | 1 | 14540 | 47.397942, 8.545894 (NE) |
+| `px4-1` | 1 | 2 | 14541 | 47.397542, 8.545894 (SE) |
+| `px4-2` | 2 | 3 | 14542 | 47.397542, 8.545294 (SW) |
+| `px4-3` | 3 | 4 | 14543 | 47.397942, 8.545294 (NW) |
+
+The homes are the corners of a square with sides of about 45 m (22.2 m
+north-south and 22.6 m east-west from the centre), centred on PX4's default home
+47.397742, 8.545594, so the vehicles do not sit on top of each other on the
+station's map. Each service sets `PX4_HOME_LAT` and `PX4_HOME_LON`, which PX4's
+`px4-rc.sihsim` turns into the `SIH_LOC_LAT0` and `SIH_LOC_LON0` parameters.
+The altitude is the SIH default.
 
 Each container sends its offboard link to the host, so a program on the host
 receives it by binding the port. How that works, and why I did not use
