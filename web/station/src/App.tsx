@@ -1,19 +1,21 @@
 // The station shares its fleet panel and latency HUD across telemetry sources.
-import { useEffect, useState, type CSSProperties } from 'react'
+import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
 import { FleetPanel } from './components/FleetPanel'
 import { InsecureBanner } from './components/InsecureBanner'
 import { LatencyHud } from './components/LatencyHud'
 import { isDemo } from './demo/mode'
+import { ReplayControls } from './demo/ReplayControls'
 import { SchematicMap } from './demo/SchematicMap'
-import { demoSnapshot } from './demo/snapshot'
+import { demoReplayFrames, REPLAY_SECONDS, REPLAY_VEHICLE_ID } from './demo/snapshot'
 import { MapView } from './map/MapView'
 import { GatewayClient, type GatewayStatus } from './net/gatewayClient'
 import type { HelloMsg } from './net/protocol'
 import { applySample, type FleetState } from './state/fleetStore'
 import { LatencyWindow, countsForLatency, type LatencyStats } from './state/latency'
-import { LINK_COLOR, type LinkLabel } from './state/link'
+import { LINK_COLOR, linkLabel, type LinkLabel } from './state/link'
 
 const HUD_REFRESH_MS = 500
+const REPLAY_DURATION_MS = REPLAY_SECONDS * 1000
 
 // Same origin as the page: the gateway serves the station in production, and
 // Vite's proxy forwards /ws in development.
@@ -41,8 +43,50 @@ export default function App() {
 }
 
 function DemoStation() {
-  const [{ fleet, latency }] = useState(demoSnapshot)
-  return <Station fleet={fleet} latency={latency} />
+  const [frames] = useState(demoReplayFrames)
+  const [elapsedMs, setElapsedMs] = useState(0)
+  const [startedAt, setStartedAt] = useState<number | null>(null)
+
+  useEffect(() => {
+    if (startedAt === null) return
+    const timer = setInterval(() => {
+      const elapsed = Math.min(performance.now() - startedAt, REPLAY_DURATION_MS)
+      setElapsedMs(elapsed)
+      if (elapsed === REPLAY_DURATION_MS) setStartedAt(null)
+    }, 100)
+    return () => clearInterval(timer)
+  }, [startedAt])
+
+  const ended = elapsedMs === REPLAY_DURATION_MS
+  const { fleet, latency } = frames[Math.floor(elapsedMs / 1000)]!
+
+  function togglePlayback() {
+    if (startedAt !== null) {
+      setElapsedMs(Math.min(performance.now() - startedAt, REPLAY_DURATION_MS))
+      setStartedAt(null)
+    } else {
+      if (ended) setElapsedMs(0)
+      setStartedAt(performance.now() - (ended ? 0 : elapsedMs))
+    }
+  }
+
+  function resetPlayback() {
+    setStartedAt(null)
+    setElapsedMs(0)
+  }
+
+  return (
+    <Station fleet={fleet} latency={latency} demoControls={
+      <ReplayControls
+        elapsedMs={elapsedMs}
+        playing={startedAt !== null}
+        ended={ended}
+        link={linkLabel(fleet[REPLAY_VEHICLE_ID]?.link?.state)}
+        onToggle={togglePlayback}
+        onReset={resetPlayback}
+      />
+    } />
+  )
 }
 
 function LiveStation() {
@@ -90,6 +134,7 @@ function LiveStation() {
 interface StationProps {
   fleet: FleetState
   latency: LatencyStats | null
+  demoControls?: ReactNode
   live?: {
     hello: HelloMsg | undefined
     status: GatewayStatus
@@ -98,7 +143,7 @@ interface StationProps {
   }
 }
 
-function Station({ fleet, latency, live }: StationProps) {
+function Station({ fleet, latency, demoControls, live }: StationProps) {
   const stale = live !== undefined && live.status !== 'open' && Object.keys(fleet).length > 0
 
   return (
@@ -136,7 +181,10 @@ function Station({ fleet, latency, live }: StationProps) {
             </time>
           </>
         ) : (
-          <p className="demo-label">Read-only demo · Synthetic telemetry snapshot</p>
+          <>
+            <p className="demo-label">Read-only demo</p>
+            {demoControls}
+          </>
         )}
       </header>
       <main className="workspace">
@@ -146,7 +194,7 @@ function Station({ fleet, latency, live }: StationProps) {
       <footer className="statusbar">
         <LatencyHud stats={latency} rttMs={live?.rtt} synthetic={!live} />
         <span className="statusbar-note">
-          {live ? 'pose age = gateway send − bridge decode · nearest-rank · 10 s window' : 'fixture values · nearest-rank'}
+          {live ? 'pose age = gateway send − bridge decode · nearest-rank · 10 s window' : 'synthetic samples · nearest-rank · 10 s window'}
         </span>
       </footer>
     </div>

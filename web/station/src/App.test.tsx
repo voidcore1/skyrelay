@@ -1,4 +1,4 @@
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import App from './App'
 
@@ -16,6 +16,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup()
+  vi.useRealTimers()
   window.history.replaceState(null, '', '/')
   vi.unstubAllGlobals()
 })
@@ -67,10 +68,110 @@ test('schematic map plots the degraded vehicle at its longitude, latitude and he
   expect(marker?.querySelector('path')?.getAttribute('transform')).toBe('rotate(210)')
 })
 
+function startReplayTest() {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'performance'] })
+  window.history.replaceState(null, '', '/?demo=1')
+  render(<App />)
+  const controls = within(screen.getByRole('group', { name: 'Synthetic link replay' }))
+  return {
+    click: (name: string) => fireEvent.click(controls.getByRole('button', { name })),
+    elapsed: () => controls.getByLabelText('Replay elapsed time').textContent,
+    advance: (ms: number) => act(() => vi.advanceTimersByTime(ms)),
+  }
+}
+
+test('replay waits for Play, freezes on Pause, and stops at twelve seconds', () => {
+  const { click, elapsed, advance } = startReplayTest()
+
+  advance(5000)
+  expect(elapsed()).toBe('0.0 / 12 s')
+  click('Play')
+  advance(2250)
+  click('Pause')
+  expect(elapsed()).toBe('2.2 / 12 s')
+  advance(9000)
+  expect(elapsed()).toBe('2.2 / 12 s')
+  click('Play')
+  advance(9700)
+  expect(elapsed()).toBe('11.9 / 12 s')
+  expect(screen.queryByText('Replay complete')).toBeNull()
+  advance(100)
+  expect(elapsed()).toBe('12.0 / 12 s')
+  expect(screen.getByText('Replay complete').getAttribute('aria-live')).toBe('polite')
+  expect(screen.getByRole('button', { name: 'Play again' })).toBeTruthy()
+  expect(vi.getTimerCount()).toBe(0)
+  advance(5000)
+  expect(elapsed()).toBe('12.0 / 12 s')
+  click('Play again')
+  expect(elapsed()).toBe('0.0 / 12 s')
+  advance(100)
+  expect(elapsed()).toBe('0.1 / 12 s')
+  expect(openSocket).not.toHaveBeenCalled()
+})
+
+test('reset stops a running replay and restores the snapshot and its timing samples', () => {
+  const { click, elapsed, advance } = startReplayTest()
+  const map = within(screen.getByRole('img', { name: 'Synthetic schematic map' }))
+  const hud = within(screen.getByLabelText('Synthetic pose age'))
+  const initialPose = map.getByText('01 CONNECTED').closest('g')?.getAttribute('transform')
+
+  click('Play')
+  advance(8000)
+  expect(map.getByText('01 RECOVERING')).toBeTruthy()
+  click('Reset')
+  advance(4000)
+  expect(elapsed()).toBe('0.0 / 12 s')
+  expect(map.getByText('01 CONNECTED').closest('g')?.getAttribute('transform')).toBe(initialPose)
+  expect(hud.getByText('n=3')).toBeTruthy()
+  expect(hud.getByText('24')).toBeTruthy()
+  expect(hud.getByText('86')).toBeTruthy()
+  expect(vi.getTimerCount()).toBe(0)
+})
+
+test('replay holds the last pose and adds no timing samples while vehicle 01 is lost', () => {
+  const { click, advance } = startReplayTest()
+  const map = within(screen.getByRole('img', { name: 'Synthetic schematic map' }))
+  const hud = within(screen.getByLabelText('Synthetic pose age'))
+  const pose = (label: string) => map.getByText(label).closest('g')?.getAttribute('transform')
+  const initialPose = pose('01 CONNECTED')
+
+  click('Play')
+  advance(4000)
+  const lastPose = pose('01 DEGRADED')
+  expect(lastPose).not.toBe(initialPose)
+  expect(hud.getByText('n=7')).toBeTruthy()
+  advance(1000)
+  expect(pose('01 LOST')).toBe(lastPose)
+  screen.getByRole('img', { name: 'Synthetic schematic map', description: /vehicle 01.*lost its link.*last reported position/i })
+  advance(2000)
+  expect(pose('01 LOST')).toBe(lastPose)
+  expect(hud.getByText('n=7')).toBeTruthy()
+  advance(1000)
+  expect(pose('01 RECOVERING')).not.toBe(lastPose)
+  expect(hud.getByText('n=8')).toBeTruthy()
+  screen.getByRole('img', { name: 'Synthetic schematic map', description: /vehicle 01 is recovering/i })
+  advance(2000)
+  expect(map.getByText('01 CONNECTED')).toBeTruthy()
+})
+
+test('replay expires the snapshot timing samples at exactly ten seconds', () => {
+  const { click, advance } = startReplayTest()
+  const hud = within(screen.getByLabelText('Synthetic pose age'))
+
+  click('Play')
+  advance(9000)
+  expect(hud.getByText('n=9')).toBeTruthy()
+  advance(999)
+  expect(hud.getByText('n=9')).toBeTruthy()
+  advance(1)
+  expect(hud.getByText('n=7')).toBeTruthy()
+})
+
 test.each(['/', '/?demo=0', '/?demo'])('%s uses the normal gateway by default', (url) => {
   window.history.replaceState(null, '', url)
   render(<App />)
   expect(screen.getByText('GATEWAY')).toBeTruthy()
   expect(screen.getByLabelText('Pose age')).toBeTruthy()
+  expect(screen.queryByRole('group', { name: 'Synthetic link replay' })).toBeNull()
   expect(openSocket).toHaveBeenCalledExactlyOnceWith(`ws://${window.location.host}/ws`)
 })

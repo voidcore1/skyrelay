@@ -6,10 +6,16 @@ and displays recent telemetry timing.
 
 ## Standalone browser demo
 
-The standalone demo runs entirely in the browser. It shows a static snapshot
+The standalone demo runs entirely in the browser. It opens on a snapshot
 of three synthetic vehicles on a schematic map, with fleet link states and
 synthetic pose-age statistics. It runs without a gateway, simulator, or
 connected vehicle.
+
+Select **Play** to replay vehicle 01's link over 12 seconds. It starts
+connected, degrades at 3 seconds, loses its link at 5, begins recovering at 8,
+and reconnects at 10. During the outage, the map holds the last reported pose
+and the HUD receives no new pose-age samples. **Pause** freezes replay time,
+and **Reset** restores the opening snapshot. Playback stops at 12 seconds.
 
 Use Node.js 24. Run these commands from the repository root.
 

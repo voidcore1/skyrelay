@@ -206,9 +206,76 @@ a {
   color: var(--fg-dim);
 }
 
+.station-demo .topbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+
 .demo-label {
   font-weight: 700;
   color: var(--fg-dim);
+}
+
+.demo-replay,
+.demo-replay-readout,
+.demo-replay-buttons {
+  display: flex;
+  align-items: center;
+}
+
+.demo-replay {
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin-inline-start: auto;
+  font-size: var(--small);
+}
+
+.demo-replay-readout {
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.demo-replay-label,
+.demo-replay-time {
+  color: var(--fg-dim);
+}
+
+.demo-replay-state {
+  min-width: 13ch;
+  font-weight: 700;
+}
+
+.demo-replay-time {
+  min-width: 11ch;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.demo-replay-buttons {
+  gap: 6px;
+}
+
+.demo-replay button {
+  min-height: 32px;
+  padding: 4px 9px;
+  border: 1px solid var(--fg-faint);
+  background: var(--raised);
+  color: var(--fg);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.demo-replay .demo-replay-toggle {
+  min-width: calc(10ch + 20px);
+  background: var(--fg);
+  color: var(--bg);
+}
+
+.demo-replay button:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 /* ---------- workspace ---------- */
@@ -641,10 +708,6 @@ a {
     flex-wrap: wrap;
   }
 
-  .demo-label {
-    grid-column: 1 / -1;
-  }
-
   .workspace {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: 60vh auto;
@@ -694,6 +757,11 @@ a {
 }
 
 @media (max-width: 600px) {
+  .demo-replay {
+    flex-basis: 100%;
+    margin-inline-start: 0;
+  }
+
   .station-demo .workspace {
     grid-template-rows: max-content auto;
   }

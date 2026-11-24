@@ -69,12 +69,62 @@ const samples = vehicles.flatMap<SampleMsg>((v) => {
   ]
 })
 
-export function demoSnapshot() {
+const replayVehicle = vehicles[0]
+export const REPLAY_VEHICLE_ID = replayVehicle.id
+export const REPLAY_SECONDS = 12
+
+const connected = { link: replayVehicle.link, rx: replayVehicle.rx, ageMs: replayVehicle.age }
+const replayPhases = [
+  { second: 0, ...connected },
+  { second: 3, link: 'LINK_DEGRADED', rx: 7, ageMs: 72 },
+  { second: 5, link: 'LINK_LOST', rx: 0, ageMs: null },
+  { second: 8, link: 'LINK_RECOVERING', rx: 12, ageMs: 44 },
+  { second: 10, ...connected },
+] as const satisfies ReadonlyArray<{ second: number; link: LinkState; rx: number; ageMs: number | null }>
+
+// Build the frames once on the replay clock. Skipped renders then have no
+// effect on the fleet state or which samples make it into the HUD window.
+export function demoReplayFrames() {
   let fleet: FleetState = {}
   const ages = new LatencyWindow()
-  for (const sample of samples) {
+  function apply(sample: SampleMsg, nowMs: number) {
     fleet = applySample(fleet, sample)
-    if (countsForLatency(sample)) ages.add(sample.age_ms, 0)
+    if (countsForLatency(sample)) ages.add(sample.age_ms, nowMs)
   }
-  return { fleet, latency: ages.stats(0) }
+  for (const sample of samples) apply(sample, 0)
+
+  const frames = [{ fleet, latency: ages.stats(0) }]
+  const initial = fleet[REPLAY_VEHICLE_ID]!
+  let phase: (typeof replayPhases)[number] = replayPhases[0]
+  let posesReceived = 0
+
+  for (let second = 1; second <= REPLAY_SECONDS; second++) {
+    const nowMs = second * 1000
+    const nextPhase = replayPhases.find((entry) => entry.second === second)
+    if (nextPhase) {
+      phase = nextPhase
+      const link = initial.link!
+      apply({
+        type: 'sample', topic: 'link_status', age_ms: null,
+        data: {
+          ...link, header: { ...link.header, seq: second + 1 },
+          state: phase.link, rx_rate_hz: phase.rx, state_since_ns: nowMs * 1_000_000,
+        },
+      }, nowMs)
+    }
+    if (phase.ageMs !== null) {
+      posesReceived++
+      const pose = initial.pose!
+      apply({
+        type: 'sample', topic: 'pose', age_ms: phase.ageMs,
+        data: {
+          ...pose, header: { ...pose.header, seq: second + 1 },
+          lon_deg: replayVehicle.lon + posesReceived * 0.000012,
+          lat_deg: replayVehicle.lat + posesReceived * 0.000008,
+        },
+      }, nowMs)
+    }
+    frames.push({ fleet, latency: ages.stats(nowMs) })
+  }
+  return frames
 }

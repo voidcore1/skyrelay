@@ -29,7 +29,7 @@ export function LatencyHud({ stats, rttMs, synthetic = false }: {
           <span className="hud-u">ms</span> <span className="hud-sep">·</span> <span className="hud-k hud-note">indicative</span>
         </>
       )}
-      <span className="hud-n" title={synthetic ? 'samples in the snapshot' : 'samples in the window'}>
+      <span className="hud-n" title="samples in the window">
         {' '}
         n={stats?.count ?? 0}{!synthetic && '/10s'}
       </span>

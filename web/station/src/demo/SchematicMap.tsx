@@ -1,8 +1,8 @@
 import { fmtId } from '../components/format'
 import { toFeatureCollection } from '../map/vehicleLayer'
 import type { FleetState } from '../state/fleetStore'
-import { LINK_COLOR } from '../state/link'
-import { SCHEMATIC_BOUNDS } from './snapshot'
+import { LINK_COLOR, linkLabel } from '../state/link'
+import { REPLAY_VEHICLE_ID, SCHEMATIC_BOUNDS } from './snapshot'
 
 const WIDTH = 800
 const HEIGHT = 600
@@ -10,6 +10,10 @@ const HEIGHT = 600
 export function SchematicMap({ fleet }: { fleet: FleetState }) {
   const { west, east, north, south } = SCHEMATIC_BOUNDS
   const { features } = toFeatureCollection(fleet)
+  const replayLink = linkLabel(fleet[REPLAY_VEHICLE_ID]?.link?.state)
+  const replayDescription = replayLink === 'LOST'
+    ? 'has lost its link. Its last reported position was just east of the river bend, heading northeast.'
+    : `is ${replayLink.toLowerCase()}, just east of the river bend and heading northeast.`
 
   return (
     <div className="map-wrap schematic-wrap">
@@ -23,7 +27,7 @@ export function SchematicMap({ fleet }: { fleet: FleetState }) {
         <desc id="schematic-description">
           North is up. The river bend is on the west side and the training field is to the east.
           The service strip crosses the southern part of the field, and the landing pad is southeast of the strip.
-          Vehicle 01 is connected, just east of the river bend and heading northeast.
+          Vehicle {fmtId(REPLAY_VEHICLE_ID)} {replayDescription}
           Vehicle 02 is degraded, in the northern part of the field and heading southwest.
           Vehicle 03 has lost its link, in the southern part of the field northwest of the landing pad.
           Its last recorded heading was northwest.
