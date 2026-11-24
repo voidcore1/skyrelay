@@ -13,11 +13,12 @@ find_package(GTest CONFIG REQUIRED)
 find_package(CycloneDDS-CXX CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(boost_asio CONFIG REQUIRED)
+find_package(boost_beast CONFIG REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
 find_package(yaml-cpp CONFIG REQUIRED)
 find_package(CLI11 CONFIG REQUIRED)
 find_package(Threads REQUIRED)
-skyrelay_system_includes(Boost::asio GTest::gtest GTest::gtest_main GTest::gmock
+skyrelay_system_includes(Boost::asio Boost::beast GTest::gtest GTest::gtest_main GTest::gmock
                          CycloneDDS-CXX::ddscxx CycloneDDS::ddsc
                          yaml-cpp::yaml-cpp CLI11::CLI11)
 
@@ -27,4 +28,5 @@ add_subdirectory(lib/mavlink)
 add_subdirectory(lib/dds)
 add_subdirectory(apps/bridge)
 add_subdirectory(apps/bench-probe)
+add_subdirectory(apps/gateway)
 add_subdirectory(tests)
