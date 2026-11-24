@@ -64,6 +64,30 @@ class CheckLicenses(unittest.TestCase):
             self.assertEqual(rc, 1)
             self.assertIn("foo", output)
 
+    def test_flags_gpl_notice_without_licence_text(self):
+        # Many projects ship only the short notice, often wrapped across lines.
+        notices = [
+            "under the terms of the GNU General Public License as published by\n"
+            "the Free Software Foundation, either version 3 of the License.\n",
+            "under the terms of the GNU General Public License\n"
+            "as published by the Free Software Foundation.\n",
+        ]
+        for notice in notices:
+            with self.subTest(notice=notice), tempfile.TemporaryDirectory() as tmp:
+                share = make_share(tmp, {"foo": notice})
+                rc, output = run([str(share)])
+                self.assertEqual(rc, 1)
+                self.assertIn("foo", output)
+
+    def test_lgpl_notice_not_flagged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            share = make_share(tmp, {"foo": (
+                "This library is free software; you can redistribute it and/or modify it\n"
+                "under the terms of the GNU Lesser General Public License as published by\n"
+                "the Free Software Foundation; either version 2.1 of the License.\n")})
+            rc, _ = run([str(share)])
+            self.assertEqual(rc, 0)
+
     def test_lgpl_not_flagged(self):
         with tempfile.TemporaryDirectory() as tmp:
             share = make_share(tmp, {"foo": LGPL_TITLE + "SPDX-License-Identifier: LGPL-3.0\n"})

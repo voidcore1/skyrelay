@@ -19,14 +19,22 @@ on:
       - 'bench/**'
       - 'config/**'
       - 'idl/**'
+      - 'cmake/**'
+      - 'CMakeLists.txt'
+      - 'CMakePresets.json'
+      - 'vcpkg.json'
+      - 'vcpkg-configuration.json'
+      - '.github/actions/**'
       - '.github/workflows/sitl-nightly.yml'
 
 permissions:
   contents: read
 
+# A new push to a pull request replaces its older run; scheduled and manual
+# runs always finish.
 concurrency:
   group: sitl-nightly-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   m1-clean:
@@ -64,21 +72,35 @@ jobs:
             echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
           fi
 
+      # Restore only: the save below also runs when the build fails, so the
+      # ports a cold run managed to build are not lost with it.
       - name: Set up vcpkg
+        id: vcpkg
         uses: ./.github/actions/setup-vcpkg
         with:
           root: ${{ runner.temp }}/vcpkg
           binary-cache: ${{ runner.temp }}/vcpkg-archives
           cache-key: vcpkg-runner-ubuntu-24.04-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json') }}
           restore-key: vcpkg-runner-ubuntu-24.04-
+          restore-only: 'true'
 
       - name: Configure
+        id: configure
         run: |
           cmake --version
           cmake --preset release
 
       - name: Build
         run: cmake --build --preset release
+
+      # vcpkg builds the ports during Configure. Skipped when the exact key was
+      # restored (a cache entry cannot be overwritten) or Configure never ran.
+      - name: Save the vcpkg binary cache
+        if: always() && steps.configure.outcome != 'skipped' && steps.vcpkg.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/vcpkg-archives
+          key: vcpkg-runner-ubuntu-24.04-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json') }}
 
       # bench/run.sh would build the image as part of `compose up`; doing it
       # first keeps the long PX4 compile in its own step and log.
@@ -107,3 +129,4 @@ jobs:
           path: bench/results/**
           if-no-files-found: warn
           retention-days: 30
+          overwrite: true

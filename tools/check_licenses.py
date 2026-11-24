@@ -7,12 +7,16 @@ every one of those and flags a port whose text carries
 
 - the title of the GPL or AGPL licence text: "GNU GENERAL PUBLIC LICENSE",
   "GNU AFFERO";
+- the standard GPL notice, for ports that ship it without the licence text:
+  "GNU General Public License as published by";
 - or an SPDX identifier for either, such as "GPL-2.0-or-later" or "AGPL-3.0".
 
-The titles are matched in capitals, as the official texts print them. That
-keeps the LGPL ("GNU LESSER GENERAL PUBLIC LICENSE") and licences that only
-mention the GPL in passing, like the EPL-2.0's "Secondary License" clause in
-Cyclone DDS, out of the result.
+Whitespace is collapsed first, so a notice wrapped across lines still matches.
+The phrases are matched case-sensitively, as the official texts print them.
+That keeps the LGPL ("GNU LESSER GENERAL PUBLIC LICENSE", "GNU Lesser General
+Public License as published by") and licences that only mention the GPL in
+passing, like the EPL-2.0's "Secondary License" clause in Cyclone DDS, out of
+the result.
 
     tools/check_licenses.py build/dev/vcpkg_installed/x64-linux/share
     tools/check_licenses.py <share> --allow <port>   # a documented exception
@@ -29,6 +33,7 @@ from pathlib import Path
 MARKERS = (
     ("GNU GENERAL PUBLIC LICENSE", re.compile(r"GNU GENERAL PUBLIC LICENSE")),
     ("GNU AFFERO", re.compile(r"GNU AFFERO")),
+    ("GPL notice", re.compile(r"GNU General Public License as published by")),
     # \b keeps LGPL-2.1 and LGPL-3.0 out: there is no word boundary inside "LGPL".
     ("SPDX GPL/AGPL identifier", re.compile(r"\bA?GPL-[0-9]")),
 )
@@ -36,6 +41,7 @@ MARKERS = (
 
 def find_markers(text):
     """Names of the GPL markers found in one copyright text."""
+    text = " ".join(text.split())
     return [name for name, pattern in MARKERS if pattern.search(text)]
 
 
