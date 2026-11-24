@@ -25,6 +25,28 @@ jobs:
       - name: Latency report tests
         run: python3 -m unittest tests/unit/tools/test_latency_report.py
 
+  web:
+    name: web station
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web/station
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: web/station/package-lock.json
+      - name: Install
+        run: npm ci
+      - name: Unit tests
+        run: npx vitest run
+      - name: Lint
+        run: npx eslint .
+      - name: Build
+        run: npm run build
+
   cpp:
     name: cpp (${{ matrix.image }})
     runs-on: ubuntu-latest
