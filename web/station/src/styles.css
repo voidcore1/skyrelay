@@ -426,8 +426,9 @@ a {
   top: 0;
   z-index: 1;
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
-  gap: 12px;
+  gap: 6px 12px;
   padding: 10px 14px 9px;
   background: var(--panel);
   border-bottom: 1px solid var(--line-strong);
@@ -440,7 +441,20 @@ a {
   text-transform: uppercase;
 }
 
+/* Demo mode only: the fleet below is made up. Inverted, like the demo's
+   primary button, so it reads as a label and not as a link state. */
+.panel-tag {
+  align-self: center;
+  padding: 1px 5px;
+  background: var(--fg);
+  color: var(--bg);
+  font-size: var(--micro);
+  font-weight: 800;
+  letter-spacing: 0.14em;
+}
+
 .panel-count {
+  white-space: nowrap;
   font-size: var(--micro);
   letter-spacing: 0.12em;
   color: var(--fg-dim);
@@ -457,6 +471,7 @@ a {
 }
 
 .tally li {
+  white-space: nowrap;
   color: var(--state);
 }
 

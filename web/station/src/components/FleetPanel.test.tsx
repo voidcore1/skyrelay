@@ -49,3 +49,14 @@ test('a stale panel says so', () => {
   render(<FleetPanel fleet={fleet} stale={true} />)
   expect(screen.getByText(/stale/i)).toBeTruthy()
 })
+
+test('a synthetic fleet is marked in the panel header, and a live one is not', () => {
+  const fleet = applySample({}, linkMsg(1, 'LINK_CONNECTED'))
+  render(<FleetPanel fleet={fleet} stale={false} synthetic />)
+  const head = screen.getByRole('heading', { name: 'Fleet' }).parentElement!
+  expect(within(head).getByText('SYNTHETIC')).toBeTruthy()
+  cleanup()
+
+  render(<FleetPanel fleet={fleet} stale={false} />)
+  expect(screen.queryByText('SYNTHETIC')).toBeNull()
+})

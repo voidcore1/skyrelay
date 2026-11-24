@@ -182,14 +182,14 @@ function Station({ fleet, latency, demoControls, live }: StationProps) {
           </>
         ) : (
           <>
-            <p className="demo-label">Read-only demo</p>
+            <p className="demo-label">Synthetic demo</p>
             {demoControls}
           </>
         )}
       </header>
       <main className="workspace">
         {live ? <MapView fleet={fleet} stale={stale} /> : <SchematicMap fleet={fleet} />}
-        <FleetPanel fleet={fleet} stale={stale} />
+        <FleetPanel fleet={fleet} stale={stale} synthetic={!live} />
       </main>
       <footer className="statusbar">
         <LatencyHud stats={latency} rttMs={live?.rtt} synthetic={!live} />

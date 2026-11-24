@@ -54,7 +54,11 @@ function Row({ v }: { v: VehicleView }) {
   )
 }
 
-export function FleetPanel({ fleet, stale }: { fleet: FleetState; stale: boolean }) {
+export function FleetPanel({ fleet, stale, synthetic = false }: {
+  fleet: FleetState
+  stale: boolean
+  synthetic?: boolean
+}) {
   const vehicles = Object.values(fleet).sort((a, b) => a.id - b.id)
   const counts = new Map<LinkLabel, number>()
   for (const v of vehicles) {
@@ -65,6 +69,7 @@ export function FleetPanel({ fleet, stale }: { fleet: FleetState; stale: boolean
     <section className="panel fleet" aria-label="Fleet" data-stale={stale || undefined}>
       <header className="panel-head">
         <h2>Fleet</h2>
+        {synthetic && <span className="panel-tag">SYNTHETIC</span>}
         <span className="panel-count">{vehicles.length.toString().padStart(2, '0')} VEH</span>
         <ul className="tally" aria-label="Link states">
           {STATE_ORDER.filter((l) => counts.has(l)).map((l) => (
