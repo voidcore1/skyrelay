@@ -39,6 +39,31 @@ the report's: 1 if the overall p99 is above 100 ms or nothing was received.
 Results land in `bench/results/<UTC date>T<HHMMSS>Z-<scenario>/` (git-ignored): the CSV,
 `report.md`, `host.txt` and the bridge log.
 
+## Nightly in CI
+
+The `sitl-nightly` workflow (`.github/workflows/sitl-nightly.yml`) runs the same
+scenario end to end on a GitHub-hosted `ubuntu-24.04` runner. It runs every
+night at 02:00 UTC, on demand from the Actions tab, and on pull requests that
+touch `apps/`, `lib/`, `sim/`, `bench/`, `config/`, `idl/` or the workflow
+itself. The job:
+
+1. builds the `release` preset, with the same vcpkg setup and binary cache as
+   the main CI;
+2. builds the PX4 image (`docker compose -f sim/sih-px4-4/compose.yaml build`);
+3. runs `BUILD_DIR=build/release bench/run.sh m1-clean`, so the job fails
+   exactly when the gate does.
+
+The report is added to the run's summary page. Everything under
+`bench/results/` (CSV, `report.md`, `host.txt`, bridge log) is uploaded as the
+artifact `m1-clean-results` and kept for 30 days, whether the gate passed or
+not. Download it from the run's page, or with
+`gh run download <run-id> -n m1-clean-results`.
+
+Nightly numbers are a regression check, not published results. A shared CI
+runner is noisier than a quiet machine, and it is a different host from the one
+in the published reports. Published results come from a clean tree on a
+described host, as listed below.
+
 ## Published results
 
 | Date | Scenario | Overall p50 / p95 / p99 | Samples |
