@@ -23,6 +23,10 @@ export default defineConfig({
       '/assets': { target: gateway, changeOrigin: true },
     },
   },
+  preview: {
+    // Serve the built station without inheriting the dev gateway proxies.
+    proxy: {},
+  },
   build: {
     // The gateway serves /assets from its data directory (glyphs and
     // sprites), so the built app must not put its own files there.

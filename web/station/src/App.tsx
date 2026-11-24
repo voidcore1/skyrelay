@@ -1,9 +1,11 @@
-// The station: one gateway connection feeding the fleet state, the map, the
-// fleet panel and the latency HUD.
+// The station shares its fleet panel and latency HUD across telemetry sources.
 import { useEffect, useState, type CSSProperties } from 'react'
 import { FleetPanel } from './components/FleetPanel'
 import { InsecureBanner } from './components/InsecureBanner'
 import { LatencyHud } from './components/LatencyHud'
+import { isDemo } from './demo/mode'
+import { SchematicMap } from './demo/SchematicMap'
+import { demoSnapshot } from './demo/snapshot'
 import { MapView } from './map/MapView'
 import { GatewayClient, type GatewayStatus } from './net/gatewayClient'
 import type { HelloMsg } from './net/protocol'
@@ -35,6 +37,15 @@ function utcClock(ms: number): string {
 }
 
 export default function App() {
+  return isDemo(window.location.search) ? <DemoStation /> : <LiveStation />
+}
+
+function DemoStation() {
+  const [{ fleet, latency }] = useState(demoSnapshot)
+  return <Station fleet={fleet} latency={latency} />
+}
+
+function LiveStation() {
   const [hello, setHello] = useState<HelloMsg>()
   const [status, setStatus] = useState<GatewayStatus>('connecting')
   const [fleet, setFleet] = useState<FleetState>({})
@@ -73,48 +84,70 @@ export default function App() {
     }
   }, [])
 
-  const hasData = Object.keys(fleet).length > 0
-  const stale = hasData && status !== 'open'
+  return <Station fleet={fleet} latency={latency} live={{ hello, status, rtt, now }} />
+}
+
+interface StationProps {
+  fleet: FleetState
+  latency: LatencyStats | null
+  live?: {
+    hello: HelloMsg | undefined
+    status: GatewayStatus
+    rtt: number | undefined
+    now: number
+  }
+}
+
+function Station({ fleet, latency, live }: StationProps) {
+  const stale = live !== undefined && live.status !== 'open' && Object.keys(fleet).length > 0
 
   return (
-    <div className="station">
-      <InsecureBanner hello={hello} />
+    <div className={live ? 'station' : 'station station-demo'}>
+      {live && <InsecureBanner hello={live.hello} />}
       <header className="topbar">
         <h1 className="wordmark">
           SKYRELAY<span className="wordmark-sub">/ STATION</span>
         </h1>
-        <dl className="meta">
-          <div>
-            <dt>GATEWAY</dt>
-            <dd className="gw" style={{ '--state': LINK_COLOR[STATUS_LINK[status]] } as CSSProperties}>
-              {STATUS_TEXT[status]}
-            </dd>
-          </div>
-          <div>
-            <dt>ENDPOINT</dt>
-            <dd>{GATEWAY_URL}</dd>
-          </div>
-          <div>
-            <dt>VERSION</dt>
-            <dd>{hello?.version ?? '—'}</dd>
-          </div>
-          <div>
-            <dt>CONTRACT</dt>
-            <dd>{hello?.contract ?? '—'}</dd>
-          </div>
-        </dl>
-        <time className="clock" dateTime={new Date(now).toISOString()}>
-          {utcClock(now)}
-          <span className="clock-zone">UTC</span>
-        </time>
+        {live ? (
+          <>
+            <dl className="meta">
+              <div>
+                <dt>GATEWAY</dt>
+                <dd className="gw" style={{ '--state': LINK_COLOR[STATUS_LINK[live.status]] } as CSSProperties}>
+                  {STATUS_TEXT[live.status]}
+                </dd>
+              </div>
+              <div>
+                <dt>ENDPOINT</dt>
+                <dd>{GATEWAY_URL}</dd>
+              </div>
+              <div>
+                <dt>VERSION</dt>
+                <dd>{live.hello?.version ?? '—'}</dd>
+              </div>
+              <div>
+                <dt>CONTRACT</dt>
+                <dd>{live.hello?.contract ?? '—'}</dd>
+              </div>
+            </dl>
+            <time className="clock" dateTime={new Date(live.now).toISOString()}>
+              {utcClock(live.now)}
+              <span className="clock-zone">UTC</span>
+            </time>
+          </>
+        ) : (
+          <p className="demo-label">Read-only demo · Synthetic telemetry snapshot</p>
+        )}
       </header>
       <main className="workspace">
-        <MapView fleet={fleet} stale={stale} />
+        {live ? <MapView fleet={fleet} stale={stale} /> : <SchematicMap fleet={fleet} />}
         <FleetPanel fleet={fleet} stale={stale} />
       </main>
       <footer className="statusbar">
-        <LatencyHud stats={latency} rttMs={rtt} />
-        <span className="statusbar-note">pose age = gateway send − bridge decode · nearest-rank · 10 s window</span>
+        <LatencyHud stats={latency} rttMs={live?.rtt} synthetic={!live} />
+        <span className="statusbar-note">
+          {live ? 'pose age = gateway send − bridge decode · nearest-rank · 10 s window' : 'fixture values · nearest-rank'}
+        </span>
       </footer>
     </div>
   )

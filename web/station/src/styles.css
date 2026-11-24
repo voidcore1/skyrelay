@@ -84,6 +84,10 @@ a {
   background: var(--line);
 }
 
+.station-demo {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
 .station > * {
   background: var(--bg);
 }
@@ -202,6 +206,11 @@ a {
   color: var(--fg-dim);
 }
 
+.demo-label {
+  font-weight: 700;
+  color: var(--fg-dim);
+}
+
 /* ---------- workspace ---------- */
 
 .workspace {
@@ -245,6 +254,42 @@ a {
 
 .map-tag::after {
   content: ' ]';
+}
+
+.map-wrap.schematic-wrap {
+  background: #1c2227;
+  container: schematic-pane / inline-size;
+}
+
+.schematic {
+  width: 100%;
+  height: 100%;
+}
+
+.schematic-labels {
+  fill: #bac5cb;
+  color: #bac5cb;
+  font-size: 16px;
+}
+
+.schematic-vehicle {
+  font-size: 17px;
+  font-weight: 700;
+  paint-order: stroke;
+  stroke: #1c2227;
+  stroke-width: 4px;
+  stroke-linejoin: round;
+}
+
+@container schematic-pane (max-width: 600px) {
+  .schematic-landmarks {
+    display: none;
+  }
+
+  .schematic-vehicle,
+  .schematic-north {
+    font-size: 32px;
+  }
 }
 
 /* MapLibre controls, squared off and dark. Scoped under .map-wrap so they
@@ -596,6 +641,10 @@ a {
     flex-wrap: wrap;
   }
 
+  .demo-label {
+    grid-column: 1 / -1;
+  }
+
   .workspace {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: 60vh auto;
@@ -641,5 +690,15 @@ a {
 
   .statusbar {
     overflow-x: auto;
+  }
+}
+
+@media (max-width: 600px) {
+  .station-demo .workspace {
+    grid-template-rows: max-content auto;
+  }
+
+  .schematic-wrap {
+    aspect-ratio: 4 / 3;
   }
 }

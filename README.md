@@ -1,63 +1,54 @@
 # SkyRelay
 
-**A vendor-neutral, secure-by-default bridge between MAVLink drones and DDS — built for multi-vehicle operations and measured, not just claimed.**
+SkyRelay is a read-only fleet telemetry dashboard and portfolio project. The
+web station shows vehicle positions on a map, summarizes fleet and link state,
+and displays recent telemetry timing.
 
-> Status: design phase. No runnable code yet.
+## Standalone browser demo
 
-## Why
+The standalone demo runs entirely in the browser. It shows a static snapshot
+of three synthetic vehicles on a schematic map, with fleet link states and
+synthetic pose-age statistics. It runs without a gateway, simulator, or
+connected vehicle.
 
-Drones speak **MAVLink**. Larger systems — control stations, mission software, analytics — increasingly speak **DDS**, the publish/subscribe standard used across robotics and real-time systems.
+Use Node.js 24. Run these commands from the repository root.
 
-Today every maintained path from a drone onto DDS belongs to a single autopilot (PX4's uXRCE-DDS, ArduPilot's AP_DDS) and exposes that autopilot's internal messages. Autopilot-agnostic tools either require ROS, handle one vehicle at a time, or forward raw frames without a typed data model.
-
-SkyRelay fills that gap: one bridge, one versioned data model, PX4 and ArduPilot alike, several vehicles at once.
-
-## What it is
-
-The core product is a **contract**:
-
-- a **versioned IDL data model** for telemetry, commands and payload state,
-- **QoS and security profiles** (DDS-Security + MAVLink 2 signing, on by default),
-- a **reproducible benchmark method** with published latency percentiles.
-
-The bridge, web control station and KLV video encoder are reference implementations of that contract.
-
-```
-PX4 / ArduPilot ──MAVLink──► SkyRelay bridge ──DDS──► any DDS consumer
-   (2–4 vehicles)                 │                    (web station, apps, ROS 2)
-                                  ├── record / replay (MCAP)
-                                  ├── video + KLV (MISB ST 0601) via RTSP/WebRTC
-                                  └── fault-injection benchmark harness
+```sh
+cd web/station
+npm ci
+npm run build
+npm run preview -- --host 127.0.0.1 --port 4173 --strictPort
 ```
 
-## Targets
+Open `http://127.0.0.1:4173/?demo=1`.
 
-| Metric | Target |
-|---|---|
-| Telemetry latency (end-to-end) | ≤ 100 ms |
-| Command acknowledgement | ≤ 1 s |
-| Video latency | ≤ 300 ms |
-| Lost-link detection & recovery | ≤ 5 s |
-| Data reliability | ≥ 99 % |
+![SkyRelay dashboard with three synthetic vehicles](docs/demo/standalone-dashboard.png)
 
-Every number will be reported as p50 / p95 / p99 under named network-impairment profiles, reproducible with one command.
+## How the dashboard gets its data
 
-## Planned stack
+The bridge decodes MAVLink telemetry and publishes typed samples over DDS. The
+gateway subscribes to those topics and streams JSON batches to the browser
+over the same-origin `/ws` WebSocket. The browser keeps the latest sample for
+each vehicle and topic to update the map and fleet panel. The timing display
+shows a rolling 10-second p50 and p99 for pose age from bridge decode to gateway
+send, alongside a browser-to-gateway round-trip estimate.
 
-C++20 · Cyclone DDS 11 · MAVLink C headers (own protocol state machines) · PX4 v1.17 and ArduPilot 4.7 SITL on Gazebo Harmonic (Docker) · GStreamer + MediaMTX · MapLibre GL JS with offline PMTiles · MCAP · CMake.
+If the gateway connection drops after telemetry has arrived, the dashboard
+keeps the last received fleet data, dims the table and map markers, and shows a
+stale-data notice while it retries. The notice and dimming clear when the socket
+reopens. Before the first samples arrive, the fleet panel shows a waiting state.
 
-## Roadmap
+## Local benchmark
 
-1. MAVLink core + IDL, verified against multiple PX4 and ArduPilot SITL vehicles
-2. MAVLink signing, DDS-Security, cross-vendor secure-interop matrix
-3. Network fault-injection and benchmark harness
-4. Browser gateway and web control station
-5. Video with synchronized KLV metadata
-6. Fully offline, signed release with SBOM
+The M1 clean profile measured **0.260 ms overall p99** from bridge decode to
+the DDS consumer. This was one 60-second run on one host, with four simulated
+vehicles, no link impairment, and DDS over loopback. The measurement covers
+only that segment and excludes the vehicle link, gateway, and browser.
+[M1 clean benchmark (2026-11-23)](docs/benchmarks/2026-11-23-m1-clean.md)
 
 ## Docs
 
-- [Landscape research (Nov 2026)](docs/research/landscape-2026-11.md) — prior art, differentiators, tool versions and pitfalls
+- [Landscape research (Nov 2026)](docs/research/landscape-2026-11.md)
 
 ## License
 
