@@ -1,5 +1,5 @@
-// Telemetry age (nearest-rank p50/p99 over the last 10 s) and the round trip
-// to the gateway. Indicative only: browser timing is not the benchmark.
+// Pose age (nearest-rank p50/p99 over the last 10 s) and the round trip to
+// the gateway. Indicative only: browser timing is not the benchmark.
 import type { LatencyStats } from '../state/latency'
 import { fmtMs } from './format'
 
@@ -8,8 +8,8 @@ const TARGET_P99_MS = 100
 export function LatencyHud({ stats, rttMs }: { stats: LatencyStats | null; rttMs: number | undefined }) {
   const over = stats !== null && stats.p99 > TARGET_P99_MS
   return (
-    <div className="hud" aria-label="Telemetry latency">
-      <span className="hud-k hud-title">telem</span>{' '}
+    <div className="hud" aria-label="Pose age">
+      <span className="hud-k hud-title">pose age</span>{' '}
       <span className="hud-k">p50</span> <data className="hud-v" value={stats?.p50}>{fmtMs(stats?.p50)}</data>
       <span className="hud-u">ms</span>{' '}
       <span className="hud-k">p99</span>{' '}

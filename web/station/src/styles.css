@@ -15,7 +15,9 @@
   --line-strong: #3a3a3a;
   --fg: #eaeaea;
   --fg-dim: #9a9a94;
-  --fg-faint: #5c5c58;
+  /* At least 4.5:1 on every background it is used on (--bg, --panel and
+     --lost-row): 4.99, 4.76 and 4.84. */
+  --fg-faint: #80807b;
   --hazard: #ff2a2a;
   --warn: #ffb000;
   --lost-row: #1c0909;
