@@ -1,0 +1,43 @@
+name: Set up vcpkg
+description: >-
+  Clone vcpkg at the builtin-baseline of vcpkg.json, bootstrap it, export
+  VCPKG_ROOT and VCPKG_DEFAULT_BINARY_CACHE for the steps that follow, and
+  restore the binary archive cache. Run it after actions/checkout.
+inputs:
+  root:
+    description: Directory to clone vcpkg into
+    required: true
+  binary-cache:
+    description: vcpkg binary archive directory, cached between runs
+    required: true
+  cache-key:
+    description: Cache key for the binary archives
+    required: true
+  restore-key:
+    description: Key prefix to fall back to when cache-key misses
+    required: true
+runs:
+  using: composite
+  steps:
+    # The tool checkout and the manifest baseline are the same commit, so the
+    # pin lives in one place: vcpkg.json.
+    - name: Bootstrap vcpkg at the manifest baseline
+      shell: bash
+      env:
+        ROOT: ${{ inputs.root }}
+        BINARY_CACHE: ${{ inputs.binary-cache }}
+      run: |
+        baseline=$(python3 -c 'import json; print(json.load(open("vcpkg.json"))["builtin-baseline"])')
+        git clone https://github.com/microsoft/vcpkg.git "$ROOT"
+        git -C "$ROOT" checkout "$baseline"
+        "$ROOT/bootstrap-vcpkg.sh" -disableMetrics
+        mkdir -p "$BINARY_CACHE"
+        echo "VCPKG_ROOT=$ROOT" >> "$GITHUB_ENV"
+        echo "VCPKG_DEFAULT_BINARY_CACHE=$BINARY_CACHE" >> "$GITHUB_ENV"
+
+    - name: Cache vcpkg binary archives
+      uses: actions/cache@v4
+      with:
+        path: ${{ inputs.binary-cache }}
+        key: ${{ inputs.cache-key }}
+        restore-keys: ${{ inputs.restore-key }}

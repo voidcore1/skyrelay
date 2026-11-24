@@ -1,0 +1,109 @@
+name: sitl-nightly
+
+# End to end on one runner: four PX4 SIH vehicles in Docker, the bridge and the
+# benchmark probe, through bench/run.sh m1-clean. The job fails when the
+# benchmark gate fails (overall p99 above 100 ms, or no samples), and the
+# results are uploaded either way.
+#
+# GitHub only runs the schedule from the default branch.
+
+on:
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'apps/**'
+      - 'lib/**'
+      - 'sim/**'
+      - 'bench/**'
+      - 'config/**'
+      - 'idl/**'
+      - '.github/workflows/sitl-nightly.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sitl-nightly-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  m1-clean:
+    name: m1-clean benchmark (4 x PX4 SIH)
+    # Not a container job: the simulation needs the runner's own Docker, and
+    # the bridge has to receive the vehicles' UDP on the host.
+    runs-on: ubuntu-24.04
+    # A cold run builds every vcpkg port and the PX4 image from source.
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      # PX4's build image alone is over 8 GB unpacked.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup
+          df -h /
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build pkg-config libtool zip unzip
+
+      # The project is developed against CMake 4.2, as in ci.yml. The runner's
+      # own CMake sits in /usr/local/bin, ahead of anything apt installs, so a
+      # newer one is put first on PATH instead.
+      - name: Use CMake 4.2 or newer
+        run: |
+          current="$(cmake --version | sed -n '1s/.* //p')"
+          if dpkg --compare-versions "$current" lt 4.2; then
+            python3 -m venv "$RUNNER_TEMP/cmake-venv"
+            "$RUNNER_TEMP/cmake-venv/bin/pip" install --quiet 'cmake>=4.2,<4.3'
+            mkdir -p "$RUNNER_TEMP/bin"
+            ln -s "$RUNNER_TEMP/cmake-venv/bin/cmake" "$RUNNER_TEMP/cmake-venv/bin/ctest" "$RUNNER_TEMP/bin/"
+            echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+          fi
+
+      - name: Set up vcpkg
+        uses: ./.github/actions/setup-vcpkg
+        with:
+          root: ${{ runner.temp }}/vcpkg
+          binary-cache: ${{ runner.temp }}/vcpkg-archives
+          cache-key: vcpkg-runner-ubuntu-24.04-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json') }}
+          restore-key: vcpkg-runner-ubuntu-24.04-
+
+      - name: Configure
+        run: |
+          cmake --version
+          cmake --preset release
+
+      - name: Build
+        run: cmake --build --preset release
+
+      # bench/run.sh would build the image as part of `compose up`; doing it
+      # first keeps the long PX4 compile in its own step and log.
+      - name: Build the PX4 SITL image
+        run: docker compose -f sim/sih-px4-4/compose.yaml build
+
+      - name: Benchmark (m1-clean)
+        env:
+          BUILD_DIR: build/release
+        run: bench/run.sh m1-clean
+
+      - name: Add the report to the job summary
+        if: always()
+        run: |
+          for report in bench/results/*-m1-clean/report.md; do
+            if [ -f "$report" ]; then
+              cat "$report" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m1-clean-results
+          path: bench/results/**
+          if-no-files-found: warn
+          retention-days: 30
