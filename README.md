@@ -8,6 +8,13 @@ The product is a contract: the IDL data model, the QoS profiles and the
 benchmark method. The bridge, the gateway and the web station are reference
 implementations of it.
 
+![The live station: four simulated PX4 vehicles on the offline map, all connected](docs/demo/live-station.png)
+
+*The station with the [quickstart](#quickstart) stack running on one machine:
+four PX4 SIH vehicles in Docker, the bridge and the gateway, captured with
+headless Chrome at 1440×900. The pose-age HUD at the bottom is the browser's
+indicative view; the measured number is in [Benchmark](#benchmark).*
+
 ## Status
 
 **`v0.1.0-preview` — INSECURE PREVIEW.** There is no security yet: no
