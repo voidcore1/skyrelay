@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include <fcntl.h>
 #include <pty.h>
 #include <termios.h>
 #include <unistd.h>
@@ -40,6 +41,8 @@ struct Pty {
     cfmakeraw(&t);
     tcsetattr(slave, TCSANOW, &t);
     ::close(slave);  // the device node stays while the master is open
+    // A write that cannot complete must fail the test, not hang it.
+    fcntl(master, F_SETFL, fcntl(master, F_GETFL) | O_NONBLOCK);
   }
   ~Pty() { close_master(); }
   void close_master() {
@@ -64,6 +67,8 @@ TEST(SerialLink, ExchangesBytesOverPty) {
                   });
   ASSERT_TRUE(run_until(io, [&] { return link.open(); }));
 
+  // The master is non-blocking and the pty buffer is empty, so this lands
+  // in one go; a short write is a failure.
   ASSERT_EQ(::write(pty.master, "ping", 4), 4);
   ASSERT_TRUE(run_until(io, [&] { return got == "ping"; }));
 

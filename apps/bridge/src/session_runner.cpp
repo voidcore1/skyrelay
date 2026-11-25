@@ -103,6 +103,9 @@ SessionRunner::SessionRunner(const VehicleConfig& vehicle,
           log_handler_error("receive", e);
           return false;
         }
+      },
+      [this](const std::string& line) {
+        spdlog::warn("{}: {}", label_, line);
       });
   transport_.link = link_.get();
   port_ = link_->local_port();

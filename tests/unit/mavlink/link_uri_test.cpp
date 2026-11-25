@@ -18,7 +18,7 @@ TEST(LinkUri, ParsesListenAndOut) {
 }
 
 TEST(LinkUri, RejectsBadInput) {
-  for (auto s : {"udp://0.0.0.0", "tcp://x:1", "udp://h:0", "udp://h:70000",
+  for (auto s : {"udp://0.0.0.0", "ftp://127.0.0.1:1", "udp://h:0", "udp://h:70000",
                  "", "udp//h:1", "udp://:5", "udp://h:", "udp://h:1x"}) {
     EXPECT_THROW(parse_link_uri(s), std::invalid_argument) << s;
   }

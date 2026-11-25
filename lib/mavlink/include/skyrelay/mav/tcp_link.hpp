@@ -1,13 +1,11 @@
 #pragma once
 
-#include <array>
 #include <cstddef>
 #include <cstdint>
-#include <deque>
 #include <memory>
 #include <span>
-#include <vector>
 
+#include "skyrelay/mav/detail/stream_link_core.hpp"
 #include "skyrelay/mav/link.hpp"
 
 namespace skyrelay::mav {
@@ -23,9 +21,9 @@ class TcpLink final : public Link {
 
   // Starts connecting at once without blocking. uri.host must be an IP
   // literal (parse_link_uri guarantees it); anything else throws
-  // boost::system::system_error.
+  // boost::system::system_error. on_log hears about failed connects.
   TcpLink(boost::asio::io_context& io, const LinkUri& uri, RxHandler on_rx,
-          ReconnectBackoff backoff = {});
+          ReconnectBackoff backoff = {}, LogHandler on_log = nullptr);
   ~TcpLink() override;
   TcpLink(const TcpLink&) = delete;
   TcpLink& operator=(const TcpLink&) = delete;
@@ -35,36 +33,21 @@ class TcpLink final : public Link {
   bool connected() const { return st_->connected; }
 
  private:
-  // Everything an in-flight handler touches lives here and is kept alive by
-  // the handlers themselves, so destroying the link before the io_context
-  // has drained is safe.
-  struct State {
-    explicit State(boost::asio::io_context& io) : socket(io), timer(io) {}
+  struct Transport {
+    using Stream = boost::asio::ip::tcp::socket;
+    explicit Transport(boost::asio::io_context& io) : socket(io) {}
+    Stream& stream() { return socket; }
+    void open(std::function<void(const boost::system::error_code&)> done);
+    void close() {
+      boost::system::error_code ec;
+      socket.close(ec);
+    }
     boost::asio::ip::tcp::socket socket;
-    boost::asio::steady_timer timer;
     boost::asio::ip::tcp::endpoint peer;
-    ReconnectBackoff backoff;
-    std::chrono::milliseconds next_delay{};
-    bool alive = true;
-    bool connected = false;
-    bool ever_connected = false;
-    // Bumped whenever a connection ends, so a handler that belongs to an
-    // earlier connection does nothing.
-    uint64_t generation = 0;
-    std::array<uint8_t, 4096> rx_buf{};
-    std::deque<std::vector<uint8_t>> tx_queue;
-    std::size_t tx_pending = 0;
-    bool writing = false;
-    RxHandler on_rx;
-    LinkCounters counters;
   };
-  static void connect(const std::shared_ptr<State>& st);
-  static void arm_read(const std::shared_ptr<State>& st);
-  static void write_next(const std::shared_ptr<State>& st);
-  // Ends the current connection (or failed attempt) and schedules the next.
-  static void lost(const std::shared_ptr<State>& st);
+  using Core = detail::StreamLinkCore<Transport>;
 
-  std::shared_ptr<State> st_;
+  std::shared_ptr<Core> st_;
 };
 
 }  // namespace skyrelay::mav

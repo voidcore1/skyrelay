@@ -5,6 +5,7 @@
 #include <functional>
 #include <memory>
 #include <span>
+#include <string>
 
 #include <boost/asio.hpp>
 
@@ -30,6 +31,11 @@ struct ReconnectBackoff {
   std::chrono::milliseconds max{5000};
 };
 
+// Receives a line about a stream link's connection trouble (a failed open or
+// connect, a lost connection). Called on the io_context's thread, rate limited
+// by the link, and never after the link is destroyed.
+using LogHandler = std::function<void(const std::string&)>;
+
 // One transport to one vehicle. All I/O is asynchronous on the io_context the
 // link was opened on, so send() never blocks and everything runs on the thread
 // that runs that context.
@@ -50,8 +56,10 @@ class Link {
 
 // The link a URI names. A UDP link binds here and throws
 // boost::system::system_error if it cannot; TCP and serial links keep trying in
-// the background, so a vehicle that is not there yet does not stop the bridge.
+// the background, so a vehicle that is not there yet does not stop the bridge;
+// on_log hears about those failures.
 std::unique_ptr<Link> open_link(boost::asio::io_context& io, const LinkUri& uri,
-                                Link::RxHandler on_rx);
+                                Link::RxHandler on_rx,
+                                LogHandler on_log = nullptr);
 
 }  // namespace skyrelay::mav

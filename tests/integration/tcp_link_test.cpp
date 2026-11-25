@@ -150,3 +150,19 @@ TEST(TcpLink, DropsSendsBeyondThePendingLimit) {
   }
   EXPECT_GT(link.counters().tx_dropped, 0u);
 }
+
+TEST(TcpLink, ReportsFailedConnectsNamingTheUri) {
+  boost::asio::io_context io;
+  uint16_t port = 0;
+  {
+    tcp::acceptor acc(io, tcp::endpoint(boost::asio::ip::make_address("127.0.0.1"), 0));
+    port = acc.local_endpoint().port();
+  }
+  std::vector<std::string> lines;
+  TcpLink link(io, LinkUri{LinkScheme::TcpClient, "127.0.0.1", port}, nullptr,
+               ReconnectBackoff{20ms, 40ms},
+               [&](const std::string& l) { lines.push_back(l); });
+  ASSERT_TRUE(run_until(io, [&] { return lines.size() >= 2; }));
+  EXPECT_NE(lines[0].find("tcp://127.0.0.1:" + std::to_string(port)),
+            std::string::npos) << lines[0];
+}
