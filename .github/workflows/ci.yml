@@ -1,13 +1,21 @@
 name: ci
 
+# Pull requests, and pushes to main once merged. A push to a branch with an
+# open pull request runs once, through the pull_request event.
 on:
   push:
+    branches: [main]
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   codegen:
     name: codegen
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -15,16 +23,15 @@ jobs:
           python-version: "3.12"
       - name: Generated files are current
         run: python3 tools/codegen/idl2gen.py --check
-      - name: Codegen tests
-        run: python3 -m unittest tests/unit/tools/test_idl2gen.py
-      - name: Latency report tests
-        run: python3 -m unittest tests/unit/tools/test_latency_report.py
-      - name: Licence check tests
-        run: python3 -m unittest tests/unit/tools/test_check_licenses.py
+      # Every Python tool: codegen, latency report, licence check and the
+      # simulation heartbeat checker.
+      - name: Python tool tests
+        run: python3 -m unittest discover -s tests/unit/tools -v
 
   web:
     name: web station
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: web/station
@@ -47,6 +54,8 @@ jobs:
   cpp:
     name: cpp (${{ matrix.image }})
     runs-on: ubuntu-latest
+    # A cold run builds every vcpkg port from source.
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
@@ -84,7 +93,7 @@ jobs:
         with:
           root: /opt/vcpkg
           binary-cache: /root/.cache/vcpkg/archives
-          cache-key: vcpkg-${{ matrix.image }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json') }}
+          cache-key: vcpkg-${{ matrix.image }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'cmake/vcpkg-ports/**') }}
           restore-key: vcpkg-${{ matrix.image }}-
 
       - name: Configure
@@ -103,3 +112,10 @@ jobs:
 
       - name: Unit tests
         run: ctest --preset dev -L unit
+
+      # DDS round trips, the UDP link, the session runner and the gateway, all
+      # over loopback inside the container. Gateway.SlowClientDoesNotStallOthers
+      # bounds a delivery at 200 ms; on a busy shared runner a failing test gets
+      # one more try instead of a looser bound.
+      - name: Integration tests
+        run: ctest --preset dev -L integration --repeat until-pass:2

@@ -80,7 +80,7 @@ jobs:
         with:
           root: ${{ runner.temp }}/vcpkg
           binary-cache: ${{ runner.temp }}/vcpkg-archives
-          cache-key: vcpkg-runner-ubuntu-24.04-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json') }}
+          cache-key: vcpkg-runner-ubuntu-24.04-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'cmake/vcpkg-ports/**') }}
           restore-key: vcpkg-runner-ubuntu-24.04-
           restore-only: 'true'
 
@@ -100,7 +100,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: ${{ runner.temp }}/vcpkg-archives
-          key: vcpkg-runner-ubuntu-24.04-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json') }}
+          key: vcpkg-runner-ubuntu-24.04-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'cmake/vcpkg-ports/**') }}
 
       # bench/run.sh would build the image as part of `compose up`; doing it
       # first keeps the long PX4 compile in its own step and log.

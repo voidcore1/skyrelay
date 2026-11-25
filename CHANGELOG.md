@@ -74,8 +74,9 @@ Telemetry only.
 - **Build:** CMake presets (`dev`, `asan`, `tsan`, `release`) and a vcpkg
   manifest with a pinned baseline, with overlay ports for Cyclone DDS 11.1.0
   and cyclonedds-cxx 11.1.0.
-- **CI:** C++ build and unit tests on Ubuntu 24.04 (GCC 13) and 26.04
-  (GCC 15), codegen and Python tests, web station tests, lint and build.
+- **CI:** C++ build, unit and integration tests on Ubuntu 24.04 (GCC 13) and
+  26.04 (GCC 15), codegen and Python tests, web station tests, lint and
+  build.
 - **Licence check:** `tools/check_licenses.py`; CI fails if any port installed
   through vcpkg is under the GPL or AGPL.
 - **Nightly benchmark:** `sitl-nightly` runs the m1-clean benchmark end to end

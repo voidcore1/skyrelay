@@ -39,9 +39,9 @@ What works today, telemetry only:
 - **Web station:** offline map, fleet panel with link states, and a pose-age
   HUD. A standalone demo with synthetic data needs nothing else.
 - **Benchmark:** `skyrelay-bench-probe` and `bench/run.sh`, with a p99 gate.
-- **CI:** builds and unit tests on Ubuntu 24.04 (GCC 13) and 26.04 (GCC 15), a
-  licence check on every C++ dependency installed through vcpkg, and a nightly
-  end-to-end simulation benchmark.
+- **CI:** builds, unit and integration tests on Ubuntu 24.04 (GCC 13) and
+  26.04 (GCC 15), a licence check on every C++ dependency installed through
+  vcpkg, and a nightly end-to-end simulation benchmark.
 
 Only PX4 has been tested. The ArduPilot adapter, commands and missions come in
 M2.
