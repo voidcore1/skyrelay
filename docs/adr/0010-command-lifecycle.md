@@ -55,14 +55,23 @@ The command logic also has to be testable without a vehicle, like
   one is `REJECTED_BUSY` at once, never queued, so an ack always belongs to
   exactly one request: the one whose current step has that command. A plan
   that uses the same `MAV_CMD` twice is refused for the same reason.
-- **A retried command is quarantined.** A step that went out more than once
-  keeps its `MAV_CMD` claimed for 700 ms after it ends. The copies go out over
-  at most 700 ms, so over the same link the ack for the last copy arrives at
-  most 700 ms after the ack that ended the step. Acks inside the quarantine
-  are dropped instead of being credited to the next request for the same
-  `MAV_CMD`. A step that went out once is released when the request
-  ends: its one ack has already been used. A rejection during the quarantine
-  says so (`MAV_CMD 176 was retried; waiting 700 ms for late acks`).
+- **A command that may still be answered is quarantined.** A step keeps its
+  `MAV_CMD` claimed for 700 ms after it ends in two cases:
+  - It ended without a definitive ack of its own: it timed out, whether or
+    not it had an `IN_PROGRESS` ack, or the bridge cancelled it at shutdown.
+    The vehicle may still answer, and after `IN_PROGRESS` it owes a final
+    ack.
+  - It went out more than once and was answered. The vehicle acks every
+    copy, and the copies go out over at most 700 ms, so over the same link
+    the ack for the last copy arrives at most 700 ms after the ack that ended
+    the step.
+
+  Acks inside the quarantine are dropped instead of being credited to the
+  next request for the same `MAV_CMD`. Only a step that went out once and got
+  its definitive ack is released as soon as the request ends: its one answer
+  has been used. A rejection during the quarantine says which case it is
+  (`MAV_CMD 192 ended without an ack; waiting 700 ms for late acks`, or
+  `MAV_CMD 176 was retried; waiting 700 ms for late acks`).
 - **`CANCELLED` means two things only.** The vehicle answered
   `MAV_RESULT_CANCELLED`, or the bridge shut down while the command was in
   flight. A lost link does not cancel anything: the command times out at its
@@ -75,15 +84,23 @@ The command logic also has to be testable without a vehicle, like
 Every request ends in exactly one terminal state, and an ack cannot be
 credited to the wrong request while the same `MAV_CMD` is claimed or
 quarantined. The cost is that a quick second command of a kind that shares a
-`MAV_CMD` is refused rather than queued: a second `HOLD` while the first is
-still in flight, or a `MISSION_PAUSE` within 700 ms of a `HOLD` that had to be
-resent on PX4, comes back `REJECTED_BUSY`, and the sender has to try again. Queueing would hide that, and
-would need its own deadlines.
+`MAV_CMD` is refused rather than queued. On PX4, a second `HOLD` while the
+first is still in flight, or a `MISSION_PAUSE` within 700 ms of a `HOLD` that
+timed out or had to be resent, comes back `REJECTED_BUSY`, and the sender has
+to try again. Queueing would hide that, and would need its own deadlines.
 
-The quarantine only covers commands that were resent. A command sent once
-with a short deadline (under 350 ms) that times out is released straight
-away, and a very late ack for it could still be taken for the next request.
-Senders that need certainty use deadlines of 350 ms or more.
+That applies to the emergency kinds as well. They can be `REJECTED_BUSY`
+behind an ordinary command that shares their `MAV_CMD`. On PX4,
+`EMERGENCY_HOVER` is `DO_SET_MODE` like `HOLD`, `MISSION_PAUSE` and
+`MISSION_START`, and `EMERGENCY_ABORT` starts with the same return-to-launch
+command as `RETURN_HOME`. While one of those is in flight or quarantined, the
+emergency command is refused, not sent. Letting the emergency kinds pre-empt
+an ordinary request (end it and take over its `MAV_CMD`) is a follow-up.
+
+The quarantine is a bound, not a guarantee. An ack that arrives more than
+700 ms after its command timed out can still be taken for the next request.
+A longer quarantine would close more of that gap, at the price of keeping the
+`MAV_CMD` busy for longer after every timeout.
 
 Per-step deadlines make a multi-step kind slower to time out than its
 `deadline_ms` suggests. The alternative, one deadline for the whole plan,

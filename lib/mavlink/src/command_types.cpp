@@ -54,6 +54,25 @@ std::string_view to_string(CommandKind k) {
   return "UNKNOWN";
 }
 
+std::string_view to_string(CommandState s) {
+  switch (s) {
+    case CommandState::Unknown: return "UNKNOWN";
+    case CommandState::Received: return "RECEIVED";
+    case CommandState::Sent: return "SENT";
+    case CommandState::InProgress: return "IN_PROGRESS";
+    case CommandState::Accepted: return "ACCEPTED";
+    case CommandState::Denied: return "DENIED";
+    case CommandState::Failed: return "FAILED";
+    case CommandState::TimedOut: return "TIMED_OUT";
+    case CommandState::Cancelled: return "CANCELLED";
+    case CommandState::RejectedInvalid: return "REJECTED_INVALID";
+    case CommandState::RejectedUnsupported: return "REJECTED_UNSUPPORTED";
+    case CommandState::RejectedBusy: return "REJECTED_BUSY";
+    case CommandState::RejectedUnauthorised: return "REJECTED_UNAUTHORISED";
+  }
+  return "UNKNOWN";
+}
+
 CommandParams make_params() { return CommandParams{}; }
 
 void reject(const CommandRequestData& req, const Rejection& why, uint64_t rt_ns,

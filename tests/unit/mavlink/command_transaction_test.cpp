@@ -107,6 +107,15 @@ TEST(CommandTransaction, ProgressFromInProgressAck) {
   EXPECT_EQ(tx.progress(), std::optional<uint8_t>{40});
   tx.on_ack(ack(511, MAV_RESULT_IN_PROGRESS, 245, 255), 245, at(500));
   EXPECT_FALSE(tx.progress());
+  // 0-100 is a percentage; anything above it is not one.
+  tx.on_ack(ack(511, MAV_RESULT_IN_PROGRESS, 245, 100), 245, at(510));
+  EXPECT_EQ(tx.progress(), std::optional<uint8_t>{100});
+  tx.on_ack(ack(511, MAV_RESULT_IN_PROGRESS, 245, 101), 245, at(520));
+  EXPECT_FALSE(tx.progress());
+  tx.on_ack(ack(511, MAV_RESULT_IN_PROGRESS, 245, 0), 245, at(530));
+  EXPECT_EQ(tx.progress(), std::optional<uint8_t>{0});
+  tx.on_ack(ack(511, MAV_RESULT_IN_PROGRESS, 245, 254), 245, at(540));
+  EXPECT_FALSE(tx.progress());
   // No retries once the vehicle has said it is working on the command.
   EXPECT_FALSE(tx.poll(at(700)));
   EXPECT_EQ(tx.sends(), 2);

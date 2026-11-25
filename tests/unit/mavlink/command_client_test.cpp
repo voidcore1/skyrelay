@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <cmath>
+#include <stdexcept>
 #include <initializer_list>
 #include <optional>
 #include <vector>
@@ -466,7 +467,16 @@ TEST(CommandClient, CancelAllCancelsInFlight) {
     EXPECT_EQ(s.attempts, 1);
   }
   EXPECT_EQ(c.in_flight(), 0u);
-  EXPECT_FALSE(c.claimed(400, at(20)));
+  // The vehicle may still answer what was sent, so both stay claimed for a
+  // while even though each went out once.
+  EXPECT_TRUE(c.claimed(400, at(719)));
+  EXPECT_TRUE(c.claimed(176, at(719)));
+  EXPECT_FALSE(c.claimed(400, at(720)));
+  out = {};
+  c.submit(request(3), plan({400}), at(30), rt(30), out);
+  ASSERT_EQ(states(out), (std::vector<S>{S::Received, S::RejectedBusy}));
+  EXPECT_EQ(out.statuses[1].detail,
+            "MAV_CMD 400 ended without an ack; waiting 700 ms for late acks");
 
   out = {};
   c.poll(at(2000), rt(2000), out);
@@ -496,4 +506,147 @@ TEST(CommandClient, MalformedPlanIsRejected) {
 
   EXPECT_TRUE(out.commands.empty());
   EXPECT_EQ(c.in_flight(), 0u);
+}
+
+// A command that timed out after one send can still be answered late. Its
+// MAV_CMD stays claimed, so the late ack is not credited to the next request.
+TEST(CommandClient, SingleSendTimeoutQuarantines) {
+  CommandClient c;
+  Outbox out;
+  c.submit(request(1, CommandKind::Goto, 300), plan({192}), at(0), rt(0), out);
+  out = {};
+  c.poll(at(300), rt(300), out);
+  ASSERT_EQ(states(out), std::vector<S>{S::TimedOut});
+  EXPECT_EQ(out.statuses[0].attempts, 1);
+
+  out = {};
+  c.submit(request(2, CommandKind::Goto, 300), plan({192}), at(320), rt(320), out);
+  ASSERT_EQ(states(out), (std::vector<S>{S::Received, S::RejectedBusy}));
+  const std::string& detail = out.statuses[1].detail;
+  EXPECT_EQ(detail, "MAV_CMD 192 ended without an ack; waiting 700 ms for late acks");
+  EXPECT_LE(detail.size(), 128u);
+  EXPECT_TRUE(out.commands.empty());
+
+  out = {};
+  c.on_ack(ack(192, MAV_RESULT_ACCEPTED), kGcs, at(360), rt(360), out);
+  EXPECT_TRUE(out.statuses.empty());
+
+  EXPECT_TRUE(c.claimed(192, at(999)));
+  EXPECT_FALSE(c.claimed(192, at(1000)));
+  c.submit(request(3, CommandKind::Goto), plan({192}), at(1000), rt(1000), out);
+  EXPECT_EQ(states(out), (std::vector<S>{S::Received, S::Sent}));
+}
+
+// IN_PROGRESS promises a final ack. If the deadline passes first, that ack is
+// still owed, and must not end the next request for the same MAV_CMD.
+TEST(CommandClient, InProgressThenTimeoutQuarantines) {
+  CommandClient c;
+  Outbox out;
+  c.submit(request(1, CommandKind::Hold), plan({176}), at(0), rt(0), out);
+  c.on_ack(ack(176, MAV_RESULT_IN_PROGRESS, 255), kGcs, at(100), rt(100), out);
+  out = {};
+  c.poll(at(10000), rt(10000), out);
+  ASSERT_EQ(states(out), std::vector<S>{S::TimedOut});
+  EXPECT_EQ(out.statuses[0].attempts, 1);
+
+  out = {};
+  c.submit(request(2, CommandKind::MissionStart), plan({176}), at(10010), rt(10010), out);
+  ASSERT_EQ(states(out), (std::vector<S>{S::Received, S::RejectedBusy}));
+  EXPECT_EQ(out.statuses[1].detail,
+            "MAV_CMD 176 ended without an ack; waiting 700 ms for late acks");
+
+  out = {};
+  c.on_ack(ack(176, MAV_RESULT_DENIED), kGcs, at(10050), rt(10050), out);
+  EXPECT_TRUE(out.statuses.empty());
+
+  c.submit(request(3, CommandKind::MissionStart), plan({176}), at(10700), rt(10700), out);
+  EXPECT_EQ(states(out), (std::vector<S>{S::Received, S::Sent}));
+}
+
+TEST(CommandClient, RetriedDenialQuarantines) {
+  CommandClient c;
+  Outbox out;
+  c.submit(request(1, CommandKind::Hold), plan({176}), at(0), rt(0), out);
+  c.poll(at(350), rt(350), out);
+  out = {};
+  c.on_ack(ack(176, MAV_RESULT_DENIED), kGcs, at(400), rt(400), out);
+  ASSERT_EQ(states(out), std::vector<S>{S::Denied});
+  EXPECT_EQ(out.statuses[0].attempts, 2);
+
+  out = {};
+  c.submit(request(2, CommandKind::Hold), plan({176}), at(1099), rt(1099), out);
+  ASSERT_EQ(states(out), (std::vector<S>{S::Received, S::RejectedBusy}));
+  EXPECT_EQ(out.statuses[1].detail, "MAV_CMD 176 was retried; waiting 700 ms for late acks");
+  EXPECT_FALSE(c.claimed(176, at(1100)));
+}
+
+// The quarantine starts when the step ends, not when the request does.
+TEST(CommandClient, EarlierStepQuarantines) {
+  CommandClient c;
+  Outbox out;
+  c.submit(request(1, CommandKind::Takeoff), plan({176, 22}), at(0), rt(0), out);
+  c.poll(at(350), rt(350), out);  // 176 again
+  c.on_ack(ack(176, MAV_RESULT_ACCEPTED), kGcs, at(400), rt(400), out);
+  out = {};
+  c.on_ack(ack(22, MAV_RESULT_ACCEPTED), kGcs, at(450), rt(450), out);
+  ASSERT_EQ(states(out), std::vector<S>{S::Accepted});
+  EXPECT_EQ(out.statuses[0].attempts, 3);
+  EXPECT_EQ(c.in_flight(), 0u);
+
+  // 22 went out once and was answered: free at once. 176 was retried.
+  EXPECT_FALSE(c.claimed(22, at(450)));
+  EXPECT_TRUE(c.claimed(176, at(1099)));
+  EXPECT_FALSE(c.claimed(176, at(1100)));
+  out = {};
+  c.submit(request(2, CommandKind::Hold), plan({176}), at(500), rt(500), out);
+  ASSERT_EQ(states(out), (std::vector<S>{S::Received, S::RejectedBusy}));
+  EXPECT_EQ(out.statuses[1].detail, "MAV_CMD 176 was retried; waiting 700 ms for late acks");
+}
+
+TEST(CommandClient, FallbackDeniedToo) {
+  CommandClient c;
+  Outbox out;
+  c.submit(request(7, CommandKind::EmergencyAbort), plan({20}, 21), at(0), rt(0), out);
+  c.on_ack(ack(20, MAV_RESULT_DENIED), kGcs, at(100), rt(100), out);
+  out = {};
+  c.on_ack(ack(21, MAV_RESULT_TEMPORARILY_REJECTED), kGcs, at(200), rt(200), out);
+  ASSERT_EQ(states(out), std::vector<S>{S::Denied});
+  const auto& s = out.statuses[0];
+  EXPECT_EQ(s.detail, "MAV_CMD 20 denied (MAV_RESULT 2), sent fallback MAV_CMD 21");
+  EXPECT_EQ(s.mav_result, std::optional<uint8_t>{MAV_RESULT_TEMPORARILY_REJECTED});
+  EXPECT_EQ(s.attempts, 2);
+  EXPECT_EQ(s.t_terminal_ns, rt(200));
+  EXPECT_TRUE(out.commands.empty());
+  EXPECT_EQ(c.in_flight(), 0u);
+
+  out = {};
+  c.poll(at(3000), rt(3000), out);
+  EXPECT_TRUE(out.commands.empty());
+  EXPECT_TRUE(out.statuses.empty());
+}
+
+TEST(CommandClient, ProgressAbove100IsUnknown) {
+  CommandClient c;
+  Outbox out;
+  c.submit(request(7), plan({400}), at(0), rt(0), out);
+  out = {};
+  c.on_ack(ack(400, MAV_RESULT_IN_PROGRESS, 150), kGcs, at(100), rt(100), out);
+  ASSERT_EQ(states(out), std::vector<S>{S::InProgress});
+  EXPECT_TRUE(std::isnan(out.statuses[0].progress_pct));
+}
+
+TEST(CommandClient, TimingMustBePositive) {
+  using std::chrono::milliseconds;
+  EXPECT_NO_THROW(CommandClient{});
+  for (auto bad : {milliseconds{0}, milliseconds{-1}}) {
+    CommandTiming t;
+    t.default_deadline = bad;
+    EXPECT_THROW(CommandClient{t}, std::invalid_argument);
+    t = {};
+    t.in_progress_max = bad;
+    EXPECT_THROW(CommandClient{t}, std::invalid_argument);
+    t = {};
+    t.duplicate_ack_quarantine = bad;
+    EXPECT_THROW(CommandClient{t}, std::invalid_argument);
+  }
 }

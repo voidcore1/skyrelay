@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <cmath>
 #include <format>
 #include <fstream>
@@ -64,6 +65,21 @@ CommandRequestData kill() {
 std::string read_file(const std::string& path) {
   std::ifstream f(path);
   return {std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>()};
+}
+
+// The literals of one IDL enum, in order, without their prefix.
+std::vector<std::string> idl_literals(const std::string& name, const std::string& prefix) {
+  const std::string idl = read_file(SKYRELAY_SOURCE_DIR "/idl/skyrelay/v1/types.idl");
+  const auto begin = idl.find("enum " + name + " {");
+  if (begin == std::string::npos) return {};
+  const std::string body = idl.substr(begin, idl.find("};", begin) - begin);
+  const std::regex literal(prefix + "([A-Z_]+)");
+  std::vector<std::string> names;
+  for (auto it = std::sregex_iterator(body.begin(), body.end(), literal);
+       it != std::sregex_iterator(); ++it) {
+    names.push_back((*it)[1]);
+  }
+  return names;
 }
 
 struct Row {
@@ -271,7 +287,12 @@ TEST(CommandValidation, LimitsArePinned) {
 TEST(CommandValidation, ContractCitesTheLimits) {
   const std::string doc = read_file(SKYRELAY_SOURCE_DIR "/docs/contract.md");
   ASSERT_FALSE(doc.empty());
-  const auto default_ms = CommandTiming{}.default_deadline.count();
+  const CommandTiming timing;
+  const auto default_ms = timing.default_deadline.count();
+  const auto in_progress_s =
+      std::chrono::duration_cast<std::chrono::seconds>(timing.in_progress_max).count();
+  ASSERT_EQ(std::chrono::seconds{in_progress_s}, timing.in_progress_max);
+  const auto quarantine_ms = timing.duplicate_ack_quarantine.count();
   const std::vector<std::string> expected = {
       std::format("`deadline_ms` is 0 for the default ({} ms) or {} to {}.", default_ms,
                   kMinDeadlineMs, kMaxDeadlineMs),
@@ -293,6 +314,9 @@ TEST(CommandValidation, ContractCitesTheLimits) {
       std::format("| | waypoint `hold_s` | NaN, or 0 to {} |", kMaxHoldS),
       std::format("| | waypoint `acceptance_radius_m` | NaN, or above 0 up to {} |",
                   kMaxAcceptanceRadiusM),
+      std::format("to {} s after its first send", in_progress_s),
+      std::format("it stays busy for {} ms after it ends", quarantine_ms),
+      std::format("or ended less than {} ms ago", quarantine_ms),
   };
   for (const auto& line : expected) {
     EXPECT_NE(doc.find(line), std::string::npos) << "docs/contract.md lacks: " << line;
@@ -331,22 +355,21 @@ TEST(CommandTypes, TerminalStates) {
 // The enum mirrors the IDL value for value, and to_string gives the IDL
 // literal without its prefix.
 TEST(CommandTypes, KindNamesMirrorTheIdl) {
-  const std::string idl = read_file(SKYRELAY_SOURCE_DIR "/idl/skyrelay/v1/types.idl");
-  const auto begin = idl.find("enum CommandKind {");
-  ASSERT_NE(begin, std::string::npos);
-  const auto end = idl.find("};", begin);
-  const std::string body = idl.substr(begin, end - begin);
-  const std::regex literal("COMMAND_KIND_([A-Z_]+)");
-  std::vector<std::string> names;
-  for (auto it = std::sregex_iterator(body.begin(), body.end(), literal);
-       it != std::sregex_iterator(); ++it) {
-    names.push_back((*it)[1]);
-  }
+  const auto names = idl_literals("CommandKind", "COMMAND_KIND_");
   ASSERT_EQ(names.size(), 23u);
   for (std::size_t i = 0; i < names.size(); ++i) {
     EXPECT_EQ(to_string(static_cast<CommandKind>(i)), names[i]) << i;
   }
   EXPECT_EQ(names.size() - 1, static_cast<std::size_t>(CommandKind::EmergencyKill));
+}
+
+TEST(CommandTypes, StateNamesMirrorTheIdl) {
+  const auto names = idl_literals("CommandState", "COMMAND_STATE_");
+  ASSERT_EQ(names.size(), 13u);
+  for (std::size_t i = 0; i < names.size(); ++i) {
+    EXPECT_EQ(to_string(static_cast<CommandState>(i)), names[i]) << i;
+  }
+  EXPECT_EQ(names.size() - 1, static_cast<std::size_t>(CommandState::RejectedUnauthorised));
 }
 
 // Every status carries t_received_ns, and every terminal one, rejections

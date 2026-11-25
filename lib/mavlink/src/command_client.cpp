@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <format>
 #include <limits>
+#include <stdexcept>
 #include <utility>
 
 namespace skyrelay::vehicle {
@@ -62,7 +63,13 @@ uint8_t saturate(unsigned n) {
 
 }  // namespace
 
-CommandClient::CommandClient(CommandTiming timing) : timing_(timing) {}
+CommandClient::CommandClient(CommandTiming timing) : timing_(timing) {
+  if (timing.default_deadline.count() <= 0 ||
+      timing.in_progress_max.count() <= 0 ||
+      timing.duplicate_ack_quarantine.count() <= 0) {
+    throw std::invalid_argument("command timing values must be positive");
+  }
+}
 
 const mav::CommandSpec& CommandClient::current(const Request& r) const {
   return r.on_fallback ? *r.fallback : r.steps[r.step];
@@ -85,9 +92,11 @@ std::optional<std::string> CommandClient::busy_reason(uint16_t mav_cmd,
     }
   }
   if (auto q = quarantine_.find(mav_cmd);
-      q != quarantine_.end() && now < q->second) {
-    return std::format("MAV_CMD {} was retried; waiting {} ms for late acks",
-                       mav_cmd, timing_.duplicate_ack_quarantine.count());
+      q != quarantine_.end() && now < q->second.until) {
+    return std::format("MAV_CMD {} {}; waiting {} ms for late acks", mav_cmd,
+                       q->second.why == Hold::NoAck ? "ended without an ack"
+                                                    : "was retried",
+                       timing_.duplicate_ack_quarantine.count());
   }
   return std::nullopt;
 }
@@ -117,14 +126,11 @@ void CommandClient::submit(const CommandRequestData& req,
   r.t_received_ns = rt_ns;
   out.statuses.push_back(status(r, CommandState::Received));
 
+  // The deadline is positive, so the first poll always sends.
   start(r, r.steps.front(), now, out);
-  if (r.tx->sends() > 0) {
-    r.t_sent_ns = rt_ns;
-    out.statuses.push_back(status(r, CommandState::Sent));
-  }
+  r.t_sent_ns = rt_ns;
+  out.statuses.push_back(status(r, CommandState::Sent));
   requests_.push_back(std::move(r));
-  // Only a deadline of zero could end the first step already.
-  settle(requests_.back(), now, rt_ns, out);
   forget_done(now);
 }
 
@@ -152,7 +158,8 @@ void CommandClient::poll(MonoTime now, uint64_t rt_ns, Outbox& out) {
 void CommandClient::cancel_all(std::string_view detail, MonoTime now,
                                uint64_t rt_ns, Outbox& out) {
   for (auto& r : requests_) {
-    if (r.tx->sends() > 1) quarantine(current(r).command, now);
+    // The vehicle may still answer what was sent.
+    quarantine(current(r).command, Hold::NoAck, now);
     finish(r, CommandState::Cancelled, detail, rt_ns, out);
   }
   forget_done(now);
@@ -173,7 +180,13 @@ void CommandClient::settle(Request& r, MonoTime now, uint64_t rt_ns,
   while (r.tx->terminal()) {
     const mav::CommandTransaction& tx = *r.tx;
     const uint16_t cmd = current(r).command;
-    if (tx.sends() > 1) quarantine(cmd, now);
+    // A step that timed out may still be answered, and a step that went out
+    // more than once may be answered once per copy.
+    if (tx.state() == mav::TxState::TimedOut) {
+      quarantine(cmd, Hold::NoAck, now);
+    } else if (tx.sends() > 1) {
+      quarantine(cmd, Hold::Retried, now);
+    }
 
     const bool more_steps = !r.on_fallback && r.step + 1 < r.steps.size();
     const bool last_step = !r.on_fallback && r.step + 1 == r.steps.size();
@@ -257,17 +270,16 @@ CommandStatusData CommandClient::status(const Request& r,
   return s;
 }
 
-void CommandClient::quarantine(uint16_t mav_cmd, MonoTime now) {
-  auto [it, fresh] =
-      quarantine_.try_emplace(mav_cmd, now + timing_.duplicate_ack_quarantine);
-  if (!fresh) {
-    it->second = std::max(it->second, now + timing_.duplicate_ack_quarantine);
-  }
+void CommandClient::quarantine(uint16_t mav_cmd, Hold why, MonoTime now) {
+  // This never cuts a running quarantine short: while one runs, no request
+  // can claim the MAV_CMD, so no step that uses it can end.
+  quarantine_[mav_cmd] = {now + timing_.duplicate_ack_quarantine, why};
 }
 
 void CommandClient::forget_done(MonoTime now) {
   std::erase_if(requests_, [](const Request& r) { return r.done; });
-  std::erase_if(quarantine_, [&](const auto& q) { return q.second <= now; });
+  std::erase_if(quarantine_,
+                [&](const auto& q) { return q.second.until <= now; });
 }
 
 }  // namespace skyrelay::vehicle

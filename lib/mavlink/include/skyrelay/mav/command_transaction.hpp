@@ -71,8 +71,8 @@ class CommandTransaction {
   TxState state() const { return state_; }
   bool terminal() const;
   std::optional<uint8_t> mav_result() const { return result_; }
-  // The progress of the last IN_PROGRESS ack; unset if there was none or it
-  // said 255 (unknown).
+  // The progress of the last IN_PROGRESS ack, 0-100; unset if there was none
+  // or it was anything else (255 means unknown, and 101-254 mean nothing).
   std::optional<uint8_t> progress() const { return progress_; }
   // How many times the command has gone out, retries included.
   uint8_t sends() const { return sent_; }

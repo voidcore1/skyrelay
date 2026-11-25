@@ -45,12 +45,15 @@ struct CommandLimits {
 //     kill carries confirm_token == command_id ^ vehicle_id (REJECTED_INVALID);
 //  4. deadline_ms is 0 or within the limits;
 //  5. only MISSION_UPLOAD carries waypoints;
-//  6. the fields the kind reads are in range. Fields it does not read are not
-//     looked at.
+//  6. for TAKEOFF, SET_ALTITUDE, GOTO, SET_SPEED, SET_HEADING and
+//     MISSION_UPLOAD, the fields the kind reads are in range. NaN is out of
+//     range except for GOTO's speed and heading (keep) and a waypoint's hold
+//     and acceptance radius (none, default). Other kinds have no ranged
+//     fields (gimbal and camera kinds are not supported yet), and fields a
+//     kind does not read are not looked at.
 // The first failure wins. Range failures read
 // "<field> out of range: <value> (allowed <min>-<max>)", with "waypoints[<i>]."
-// in front for a waypoint field. A NaN where a value is needed is out of
-// range.
+// in front for a waypoint field.
 std::optional<Rejection> validate_request(const CommandRequestData& req,
                                           CommandOrigin origin,
                                           const CommandLimits& limits = {});

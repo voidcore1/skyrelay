@@ -201,8 +201,10 @@ A request is checked before anything goes to the vehicle, and a failure is a
 | | waypoint `hold_s` | NaN, or 0 to 3600 |
 | | waypoint `acceptance_radius_m` | NaN, or above 0 up to 1000 |
 
-Fields a kind does not read are not checked, and a NaN where the kind needs a
-value is out of range. A range failure reads
+Only the kinds in this table have ranged fields. For them, NaN is out of
+range except where the table allows it, and fields a kind does not read are
+not checked. The gimbal and camera kinds are `REJECTED_UNSUPPORTED` until M5,
+so their fields have no ranges yet. A range failure reads
 `<field> out of range: <value> (allowed <min>-<max>)`, with `waypoints[<i>].`
 in front for a waypoint field.
 
@@ -226,9 +228,13 @@ request's own states: one `SENT`, any `IN_PROGRESS`, one terminal status.
   the bridge sends a land, and the final status's `detail` says so, for
   example `MAV_CMD 20 denied (MAV_RESULT 2), sent fallback MAV_CMD 21`.
 - A request is `REJECTED_BUSY` if any MAVLink command it would send is in
-  flight for another request on the same vehicle. A command that had to be
-  resent stays busy for 700 ms after it ends, because the vehicle may still
-  ack one of the copies, and that ack must not be taken for the next request.
+  flight for another request on the same vehicle. A command the vehicle may
+  still answer is held back as well. If it timed out (after `IN_PROGRESS` or
+  not), was cancelled by a shutdown, or had to be resent, which the vehicle
+  answers once per copy, it stays busy for 700 ms after it ends, so a late
+  ack is not taken for the next request. The `detail` says which:
+  `MAV_CMD 192 ended without an ack; waiting 700 ms for late acks` or
+  `MAV_CMD 176 was retried; waiting 700 ms for late acks`.
 
 ### command_status and the lifecycle
 
@@ -254,7 +260,7 @@ RECEIVED -> SENT -> [IN_PROGRESS]* -> ACCEPTED | DENIED | FAILED | TIMED_OUT | C
 | `CANCELLED` | The vehicle answered `MAV_RESULT_CANCELLED`, or the bridge shut down while the command was in flight (`detail` says so). |
 | `REJECTED_INVALID` | A field is out of range, or the kill token is wrong. |
 | `REJECTED_UNSUPPORTED` | The kind is not available for this vehicle or autopilot. |
-| `REJECTED_BUSY` | A MAVLink command the request needs is in flight for another request, or was resent and ended less than 700 ms ago, or the inbox is full. |
+| `REJECTED_BUSY` | A MAVLink command the request needs is in flight for another request, or ended less than 700 ms ago without an ack of its own or after being resent, or the inbox is full. |
 | `REJECTED_UNAUTHORISED` | `EMERGENCY_KILL` arrived outside `<fleet>.cmd.kill`. |
 
 Every `REJECTED_*`, `ACCEPTED`, `DENIED`, `FAILED`, `TIMED_OUT` and

@@ -15,15 +15,16 @@
 
 namespace skyrelay::vehicle {
 
+// Every value must be positive; CommandClient refuses anything else.
 struct CommandTiming {
   // For a request whose deadline_ms is 0.
   std::chrono::milliseconds default_deadline{1000};
   // An IN_PROGRESS ack moves a command's deadline out to this long after its
   // first send, unless the request's own deadline is longer still.
   std::chrono::milliseconds in_progress_max{10000};
-  // How long a MAV_CMD stays claimed after a command that went out more than
-  // once has ended, so a late ack for one of its copies is not taken for the
-  // next request's.
+  // How long a MAV_CMD stays claimed after a command that may still be acked
+  // has ended (see CommandClient), so that late ack is not taken for the next
+  // request's.
   std::chrono::milliseconds duplicate_ack_quarantine{700};
 };
 
@@ -42,11 +43,15 @@ struct CommandTiming {
 // - IN_PROGRESS is published for an IN_PROGRESS ack, and again only when its
 //   progress changes.
 // - Every request ends in exactly one terminal status.
-// - A step that went out more than once keeps its MAV_CMD claimed for
-//   duplicate_ack_quarantine after it ends; one that went out once frees it
-//   as soon as the request ends.
+// - A step whose MAV_CMD may still be acked keeps it claimed for
+//   duplicate_ack_quarantine after the step ends: one that ended without a
+//   definitive ack of its own (it timed out, after IN_PROGRESS or not, or
+//   was cancelled by cancel_all), and one that went out more than once, since
+//   the vehicle acks every copy. A step that went out once and got its
+//   definitive ack frees its MAV_CMD as soon as the request ends.
 class CommandClient {
  public:
+  // Throws std::invalid_argument unless every timing value is positive.
   explicit CommandClient(CommandTiming timing = {});
 
   // The plan comes from the vehicle's adapter. A plan with no steps, a mission
@@ -93,6 +98,12 @@ class CommandClient {
     bool done = false;
   };
 
+  enum class Hold : uint8_t { Retried, NoAck };
+  struct Quarantine {
+    MonoTime until;
+    Hold why;
+  };
+
   std::optional<std::string> busy_reason(uint16_t mav_cmd, MonoTime now) const;
   void start(Request& r, const mav::CommandSpec& spec, MonoTime now,
              Outbox& out);
@@ -103,13 +114,12 @@ class CommandClient {
               uint64_t rt_ns, Outbox& out);
   CommandStatusData status(const Request& r, CommandState state) const;
   const mav::CommandSpec& current(const Request& r) const;
-  void quarantine(uint16_t mav_cmd, MonoTime now);
+  void quarantine(uint16_t mav_cmd, Hold why, MonoTime now);
   void forget_done(MonoTime now);
 
   CommandTiming timing_;
   std::vector<Request> requests_;
-  // MAV_CMD -> the end of its quarantine.
-  std::map<uint16_t, MonoTime> quarantine_;
+  std::map<uint16_t, Quarantine> quarantine_;
 };
 
 }  // namespace skyrelay::vehicle

@@ -66,6 +66,8 @@ bool is_terminal(CommandState s);
 // The IDL literal without its COMMAND_KIND_ prefix ("TAKEOFF"), for details
 // and logs.
 std::string_view to_string(CommandKind k);
+// The IDL literal without its COMMAND_STATE_ prefix ("REJECTED_BUSY").
+std::string_view to_string(CommandState s);
 
 // The command partition a request arrived on: <fleet>.cmd or <fleet>.cmd.kill.
 enum class CommandOrigin : uint8_t { Normal, Kill };

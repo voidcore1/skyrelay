@@ -55,9 +55,8 @@ void CommandTransaction::on_ack(const mavlink_command_ack_t& ack,
     case MAV_RESULT_IN_PROGRESS:
       state_ = TxState::InProgress;
       deadline_at_ = start_ + in_progress_max_;
-      progress_ = ack.progress == UINT8_MAX
-                      ? std::nullopt
-                      : std::optional<uint8_t>{ack.progress};
+      progress_ = ack.progress <= 100 ? std::optional<uint8_t>{ack.progress}
+                                      : std::nullopt;
       break;
     case MAV_RESULT_CANCELLED:
       state_ = TxState::Cancelled;
