@@ -11,7 +11,9 @@ add_executable(skyrelay_unit_tests
   unit/dds/topics_test.cpp
   unit/gateway/fanout_test.cpp
   unit/gateway/static_files_test.cpp
+  unit/mavlink/command_client_test.cpp
   unit/mavlink/command_transaction_test.cpp
+  unit/mavlink/command_validation_test.cpp
   unit/mavlink/framer_test.cpp
   unit/mavlink/link_monitor_test.cpp
   unit/mavlink/link_uri_test.cpp

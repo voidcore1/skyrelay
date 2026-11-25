@@ -18,7 +18,8 @@ CommandTransaction::CommandTransaction(
 
 bool CommandTransaction::terminal() const {
   return state_ == TxState::Accepted || state_ == TxState::Denied ||
-         state_ == TxState::Failed || state_ == TxState::TimedOut;
+         state_ == TxState::Failed || state_ == TxState::TimedOut ||
+         state_ == TxState::Cancelled;
 }
 
 std::optional<SendRequest> CommandTransaction::poll(MonoTime now) {
@@ -54,6 +55,12 @@ void CommandTransaction::on_ack(const mavlink_command_ack_t& ack,
     case MAV_RESULT_IN_PROGRESS:
       state_ = TxState::InProgress;
       deadline_at_ = start_ + in_progress_max_;
+      progress_ = ack.progress == UINT8_MAX
+                      ? std::nullopt
+                      : std::optional<uint8_t>{ack.progress};
+      break;
+    case MAV_RESULT_CANCELLED:
+      state_ = TxState::Cancelled;
       break;
     case MAV_RESULT_TEMPORARILY_REJECTED:
     case MAV_RESULT_DENIED:
@@ -63,7 +70,7 @@ void CommandTransaction::on_ack(const mavlink_command_ack_t& ack,
     case MAV_RESULT_COMMAND_UNSUPPORTED_MAV_FRAME:
       state_ = TxState::Denied;
       break;
-    default:  // FAILED, CANCELLED and anything unknown
+    default:  // FAILED and anything unknown
       state_ = TxState::Failed;
       break;
   }

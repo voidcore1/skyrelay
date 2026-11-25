@@ -201,8 +201,34 @@ A request is checked before anything goes to the vehicle, and a failure is a
 | | waypoint `hold_s` | NaN, or 0 to 3600 |
 | | waypoint `acceptance_radius_m` | NaN, or above 0 up to 1000 |
 
-A range failure reads `<field> out of range: <value> (allowed <min>-<max>)`,
-with `waypoints[<i>].` in front for a waypoint field.
+Fields a kind does not read are not checked, and a NaN where the kind needs a
+value is out of range. A range failure reads
+`<field> out of range: <value> (allowed <min>-<max>)`, with `waypoints[<i>].`
+in front for a waypoint field.
+
+Every number in this section is a named constant in
+`lib/mavlink/include/skyrelay/vehicle/command_validation.hpp`, and a unit test
+reads this table back and compares it with them.
+
+### Deadlines, retries and busy MAVLink commands
+
+A kind can take more than one MAVLink command; on some autopilots, for
+example, a mode change goes out before the takeoff. The bridge sends them one
+at a time, each after the one before it was accepted, and publishes only the
+request's own states: one `SENT`, any `IN_PROGRESS`, one terminal status.
+
+- `deadline_ms` applies to each MAVLink command of the request, counted from
+  its first send. Each is resent at 350 ms and 700 ms if no ack has arrived.
+- An `IN_PROGRESS` ack stops the resends and extends that command's deadline
+  to 10 s after its first send (or `deadline_ms`, if that is longer).
+  `IN_PROGRESS` is published again only when `progress_pct` changes.
+- `EMERGENCY_ABORT` has a fallback: if the vehicle denies or fails the return,
+  the bridge sends a land, and the final status's `detail` says so, for
+  example `MAV_CMD 20 denied (MAV_RESULT 2), sent fallback MAV_CMD 21`.
+- A request is `REJECTED_BUSY` if any MAVLink command it would send is in
+  flight for another request on the same vehicle. A command that had to be
+  resent stays busy for 700 ms after it ends, because the vehicle may still
+  ack one of the copies, and that ack must not be taken for the next request.
 
 ### command_status and the lifecycle
 
@@ -222,13 +248,13 @@ RECEIVED -> SENT -> [IN_PROGRESS]* -> ACCEPTED | DENIED | FAILED | TIMED_OUT | C
 | `SENT` | The first MAVLink message went out. |
 | `IN_PROGRESS` | The vehicle answered `IN_PROGRESS` or a mission transfer is under way; `progress_pct` says how far. |
 | `ACCEPTED` | The vehicle answered `MAV_RESULT_ACCEPTED`. This does not mean the manoeuvre has finished. |
-| `DENIED` | The vehicle answered `DENIED`, `TEMPORARILY_REJECTED` or `UNSUPPORTED`. `mav_result` has the value. |
-| `FAILED` | The vehicle answered `FAILED` or another error, or a mission transfer failed. |
-| `TIMED_OUT` | No definitive answer by `deadline_ms`. |
-| `CANCELLED` | The command was withdrawn before the vehicle answered. |
+| `DENIED` | The vehicle refused: `DENIED`, `TEMPORARILY_REJECTED`, `UNSUPPORTED`, `COMMAND_LONG_ONLY`, `COMMAND_INT_ONLY` or `COMMAND_UNSUPPORTED_MAV_FRAME`. `mav_result` has the value. |
+| `FAILED` | The vehicle answered `FAILED` or a result the bridge does not know, or a mission transfer failed. |
+| `TIMED_OUT` | No definitive answer by the deadline; `detail` names the MAVLink command. |
+| `CANCELLED` | The vehicle answered `MAV_RESULT_CANCELLED`, or the bridge shut down while the command was in flight (`detail` says so). |
 | `REJECTED_INVALID` | A field is out of range, or the kill token is wrong. |
 | `REJECTED_UNSUPPORTED` | The kind is not available for this vehicle or autopilot. |
-| `REJECTED_BUSY` | A command with the same MAVLink command is already in flight for the vehicle, or the inbox is full. |
+| `REJECTED_BUSY` | A MAVLink command the request needs is in flight for another request, or was resent and ended less than 700 ms ago, or the inbox is full. |
 | `REJECTED_UNAUTHORISED` | `EMERGENCY_KILL` arrived outside `<fleet>.cmd.kill`. |
 
 Every `REJECTED_*`, `ACCEPTED`, `DENIED`, `FAILED`, `TIMED_OUT` and
@@ -236,9 +262,11 @@ Every `REJECTED_*`, `ACCEPTED`, `DENIED`, `FAILED`, `TIMED_OUT` and
 
 Timestamps are `CLOCK_REALTIME` nanoseconds. `t_received_ns` is set on every
 status, `t_sent_ns` from `SENT` on, `t_in_progress_ns` records the first
-`IN_PROGRESS`, and `t_terminal_ns` is set only on a terminal status. A cleared
-bit means the transition has not happened. `attempts` counts the MAVLink sends,
-retries included (resent at 350 ms and 700 ms).
+`IN_PROGRESS`, and `t_terminal_ns` is set on every terminal status, rejections
+included, and on no other. A cleared bit means the transition has not
+happened. `mav_result` is the last `COMMAND_ACK` result for the MAVLink command
+in flight, and `attempts` counts the MAVLink sends of the whole request,
+retries included.
 
 ### The kill rule
 

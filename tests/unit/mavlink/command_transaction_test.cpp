@@ -13,11 +13,13 @@ MonoTime at(int ms) { return t0 + milliseconds{ms}; }
 
 CommandSpec spec() { return CommandSpec{511, {33, 50000, 0, 0, 0, 0, 0}, 1, 1}; }
 
-mavlink_command_ack_t ack(uint16_t command, uint8_t result, uint8_t target = 245) {
+mavlink_command_ack_t ack(uint16_t command, uint8_t result, uint8_t target = 245,
+                         uint8_t progress = 0) {
   mavlink_command_ack_t a{};
   a.command = command;
   a.result = result;
   a.target_system = target;
+  a.progress = progress;
   return a;
 }
 
@@ -73,15 +75,47 @@ TEST(CommandTransaction, InProgressExtendsDeadline) {
 
 TEST(CommandTransaction, MapsResults) {
   const TxState expected[] = {
-      TxState::Accepted, TxState::Denied, TxState::Denied, TxState::Denied,
-      TxState::Failed,   TxState::InProgress, TxState::Failed, TxState::Denied,
-      TxState::Denied,   TxState::Denied};
+      TxState::Accepted, TxState::Denied,     TxState::Denied,
+      TxState::Denied,   TxState::Failed,     TxState::InProgress,
+      TxState::Cancelled, TxState::Denied,    TxState::Denied,
+      TxState::Denied};
   for (uint8_t r = 0; r <= 9; ++r) {
     CommandTransaction tx(spec(), at(0));
     tx.poll(at(0));
     tx.on_ack(ack(511, r), 245, at(10));
     EXPECT_EQ(tx.state(), expected[r]) << "result " << int(r);
+    EXPECT_EQ(tx.terminal(), r != MAV_RESULT_IN_PROGRESS) << "result " << int(r);
   }
+  // A result this build does not know is a failure.
+  CommandTransaction tx(spec(), at(0));
+  tx.poll(at(0));
+  tx.on_ack(ack(511, 200), 245, at(10));
+  EXPECT_EQ(tx.state(), TxState::Failed);
+  EXPECT_EQ(tx.mav_result(), std::optional<uint8_t>{200});
+}
+
+TEST(CommandTransaction, ProgressFromInProgressAck) {
+  CommandTransaction tx(spec(), at(0));
+  EXPECT_EQ(tx.sends(), 0);
+  tx.poll(at(0));
+  EXPECT_EQ(tx.sends(), 1);
+  EXPECT_FALSE(tx.progress());
+  tx.poll(at(350));
+  EXPECT_EQ(tx.sends(), 2);
+
+  tx.on_ack(ack(511, MAV_RESULT_IN_PROGRESS, 245, 40), 245, at(400));
+  EXPECT_EQ(tx.progress(), std::optional<uint8_t>{40});
+  tx.on_ack(ack(511, MAV_RESULT_IN_PROGRESS, 245, 255), 245, at(500));
+  EXPECT_FALSE(tx.progress());
+  // No retries once the vehicle has said it is working on the command.
+  EXPECT_FALSE(tx.poll(at(700)));
+  EXPECT_EQ(tx.sends(), 2);
+
+  tx.on_ack(ack(511, MAV_RESULT_IN_PROGRESS, 245, 90), 245, at(600));
+  tx.on_ack(ack(511, MAV_RESULT_ACCEPTED), 245, at(700));
+  EXPECT_EQ(tx.state(), TxState::Accepted);
+  // The last IN_PROGRESS progress stays readable after the final ack.
+  EXPECT_EQ(tx.progress(), std::optional<uint8_t>{90});
 }
 
 TEST(CommandTransaction, IgnoresForeignAcks) {
