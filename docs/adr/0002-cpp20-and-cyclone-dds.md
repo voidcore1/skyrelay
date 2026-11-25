@@ -17,8 +17,7 @@ understand the protocol layer instead of delegating it.
 
 The second is an all-Python implementation using pymavlink and
 cyclonedds-python. It would take roughly half the effort, but the GIL
-complicates per-vehicle isolation and the video path, and it says less about
-the engineering the project is meant to show.
+complicates per-vehicle isolation and the video path.
 
 The third is ROS 2 on top of PX4's uXRCE-DDS client, or AP_DDS for ArduPilot.
 It is popular, but it ties each path to a single autopilot, exposes

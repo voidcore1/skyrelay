@@ -41,5 +41,5 @@ secrets/
 
 # vcpkg, runtime data and benchmark output
 vcpkg_installed/
-data/
+/data/
 bench/results/

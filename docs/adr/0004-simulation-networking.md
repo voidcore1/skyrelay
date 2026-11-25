@@ -24,20 +24,24 @@ GitHub release has no SITL assets. The Git tag `v1.17.0` and the build image
 ## Decision
 
 **Partner override.** Each service gets
-`extra_hosts: ["host.docker.internal:host-gateway"]`. The image entrypoint
-resolves that name to an IPv4 address and rewrites only the offboard line of
-`px4-rc.mavlink` to pass `-t <host ip>`. The remote port is already
-`14540+N` because the instance index is N. I tested it:
+`extra_hosts: ["host.docker.internal:host-gateway"]`. When the image is built,
+the Dockerfile patches only the offboard line of `px4-rc.mavlink` to pass
+`-t $SKYRELAY_HOST_IP`, and fails the build if that line ever changes. At
+start, the entrypoint reads the IPv4 entry for `host.docker.internal` from
+`/etc/hosts`, refuses to start without one, and exports it as
+`SKYRELAY_HOST_IP`. The remote port is already `14540+N` because the instance
+index is N. I tested it:
 `check_heartbeats.py` sees sysids 1 to 4 with autopilot 12 on ports 14540 to
 14543. Docker resolved `host-gateway` to `172.17.0.1`, the `docker0` address,
 and not the `skyrelay-sim` bridge address; the host answers on both.
 
-**Rejected: `MAV_{i}_BROADCAST=1`.** It is a per-link switch that changes how
-PX4 addresses every MAVLink link, not just the one I want, and it sends to the
-broadcast address of the container's subnet. That reaches the host only as a
-side effect of the bridge. It also does not name the host, so I cannot move the
-bridge to another machine without redoing the networking. I did not measure it;
-I rejected it on those grounds.
+**Rejected: `MAV_{i}_BROADCAST=1`.** The parameter exists per MAVLink
+instance, so it could be set for the offboard link alone, but it does not name
+a partner: PX4 then sends to the broadcast address of the container's subnet.
+The host would get those datagrams only because it sits on that Docker bridge
+network as its gateway, not because anything addresses it, and the bridge
+could not move to another machine without redoing the networking. I did not
+measure it; I rejected it on those grounds.
 
 **Rejected: `network_mode: host`.** One namespace for all four vehicles, so no
 per-vehicle link emulation.
@@ -54,8 +58,11 @@ limits the override to the offboard link.
   the Dockerfile that has to keep working when I bump PX4.
 - Only the offboard link reaches the host. A GCS link on 14550 is not routed
   out, which is what I want for the bridge.
-- The host sees heartbeats from the Docker gateway address, not from a per
-  vehicle address, so I tell vehicles apart by port and sysid only.
+- Traffic from a container to the host itself is not masqueraded (Docker's
+  masquerade rule only covers traffic routed out through another interface),
+  so the host sees each vehicle's datagrams from that container's own address
+  on `skyrelay-sim`, 172.18.0.x on my machine. Docker hands those addresses out at start in no
+  fixed order, so I tell vehicles apart by port and sysid only.
 - Anything on the host that binds 14540 to 14543 competes with the bridge. The
   checker binds those ports too, so stop it before starting the bridge.
 - Host firewalls that drop container-to-host UDP will break this. I have not

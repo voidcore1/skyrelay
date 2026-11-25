@@ -1,6 +1,6 @@
 # SkyRelay — System Design
 
-- **Status:** Draft for review
+- **Status:** Accepted (M0–M1 implemented)
 - **Date:** 2026-11-23
 - **Scope:** whole project, v1.0
 - **Background research:** [docs/research/landscape-2026-11.md](../research/landscape-2026-11.md)
@@ -81,9 +81,9 @@ SkyRelay is a vendor-neutral data plane between MAVLink drones and DDS. It lets 
 
 | | Approach | Trade-off | Verdict |
 |---|---|---|---|
-| A | **C++20 core on Cyclone DDS (cyclonedds-cxx 11.1)**, hand-written MAVLink state machines on pinned C headers, Python for tooling, TypeScript web UI | Hardest to build. Matches the industry stack, has large latency headroom, native IDL, and the strongest engineering signal. Writing the protocol layer by hand forces deep understanding | **Chosen** |
-| B | All Python (pymavlink + cyclonedds-python) | Roughly 2× faster to build. Weaker signal; the GIL complicates the per-vehicle isolation and video paths | Rejected |
-| C | ROS 2 on PX4's uXRCE-DDS (+ AP_DDS) | ROS 2 is popular on resumes. It locks each path to one autopilot, exposes autopilot-internal types, and adds ROS topic and type mangling to the contract. That is the opposite of the project's reason to exist | Rejected; ROS 2 interop becomes a stretch mode instead |
+| A | **C++20 core on Cyclone DDS (cyclonedds-cxx 11.1)**, hand-written MAVLink state machines on pinned C headers, Python for tooling, TypeScript web UI | Hardest to build. Matches the stack used in real-time robotics, has large latency headroom and native IDL. Writing the protocol layer by hand forces deep understanding | **Chosen** |
+| B | All Python (pymavlink + cyclonedds-python) | Roughly 2× faster to build. The GIL complicates the per-vehicle isolation and video paths | Rejected |
+| C | ROS 2 on PX4's uXRCE-DDS (+ AP_DDS) | ROS 2 is widely used and has a large ecosystem, but it locks each path to one autopilot, exposes autopilot-internal types, and adds ROS topic and type mangling to the contract. That is the opposite of the project's reason to exist | Rejected; ROS 2 interop becomes a stretch mode instead |
 
 **Sub-decisions within A:**
 
@@ -453,12 +453,13 @@ Selection:
 │                            │                                  │ [Arm][Takeoff 20m]│
 │                            │                                  │ [Goto][RTH][Land] │
 ├────────────────────────────┴──────────────────────────────────┤ [Hover] [ABORT]   │
-│ LATENCY HUD  telem p50 18ms p99 41ms · cmd p99 220ms · video  │ cmd log: #12 ACK  │
+│ LATENCY HUD pose age p50 18ms p99 41ms · cmd p99 220ms · video│ cmd log: #12 ACK  │
 └───────────────────────────────────────────────────────────────┴───────────────────┘
 ```
 
 - **Latency HUD.**
-  - Shows bridge-side telemetry age (`now − t_bridge_ns`, computed at the gateway) plus a browser↔gateway RTT estimate.
+  - Shows pose age (`now − t_bridge_ns`, computed at the gateway) plus a browser↔gateway RTT estimate.
+  - Only `pose` counts: it is published as each position message is decoded, so its age is bridge + DDS + gateway, while `vehicle_state` and `health` are republished at a fixed rate from the last decoded message and the latched topics are replayed with the age of the stored sample.
   - It is labelled as indicative. Authoritative numbers come from `bench/`.
 - **Offline maps.**
   - A regional Protomaps v4 PMTiles extract, with self-hosted glyphs and sprites, served by the gateway.

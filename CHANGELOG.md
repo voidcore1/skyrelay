@@ -69,8 +69,9 @@ Telemetry only.
   bridge, records `pose` for 60 s, reports nearest-rank p50/p95/p99 per
   vehicle and overall, and gates on p99 ≤ 100 ms.
 - **First published result:** M1 clean profile, overall p99 0.260 ms from
-  bridge decode to DDS consumer (`docs/benchmarks/2026-11-23-m1-clean.md`).
-  This excludes the vehicle and the link.
+  bridge decode to DDS consumer (`docs/benchmarks/2026-11-23-m1-clean.md`,
+  with the run's raw output next to it). This excludes the vehicle and the
+  link.
 - **Build:** CMake presets (`dev`, `asan`, `tsan`, `release`) and a vcpkg
   manifest with a pinned baseline, with overlay ports for Cyclone DDS 11.1.0
   and cyclonedds-cxx 11.1.0.

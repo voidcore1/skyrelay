@@ -94,7 +94,8 @@ def main(argv=None):
     ap.add_argument("csv", type=Path)
     ap.add_argument("--out", type=Path, help="write the Markdown report here")
     ap.add_argument("--gate-p99-ms", type=float,
-                    help="exit 1 if the overall p99 exceeds this, or there are no samples")
+                    help="exit 1 if the overall p99 exceeds this, any latency is "
+                         "negative, or there are no samples")
     args = ap.parse_args(argv)
     text, failed = render(load(args.csv), args.gate_p99_ms)
     if args.out:
