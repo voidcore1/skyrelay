@@ -84,4 +84,49 @@ struct LinkStatus {
       (1ull << 4) | (1ull << 5);
 };
 
+struct CommandRequest {
+  static constexpr uint64_t kind = 1ull << 0;
+  static constexpr uint64_t params = 1ull << 1;
+  static constexpr uint64_t waypoints = 1ull << 2;
+  static constexpr uint64_t deadline_ms = 1ull << 3;
+  static constexpr uint64_t confirm_token = 1ull << 4;
+  static constexpr uint64_t operator_name = 1ull << 5;
+  static constexpr uint64_t kCore = (1ull << 0) | (1ull << 1) | (1ull << 2) | (1ull << 3) |
+      (1ull << 4) | (1ull << 5);
+  static constexpr uint64_t kAll = (1ull << 0) | (1ull << 1) | (1ull << 2) | (1ull << 3) |
+      (1ull << 4) | (1ull << 5);
+};
+
+struct CommandStatus {
+  static constexpr uint64_t kind = 1ull << 0;
+  static constexpr uint64_t state = 1ull << 1;
+  static constexpr uint64_t mav_result = 1ull << 2;
+  static constexpr uint64_t mission_result = 1ull << 3;
+  static constexpr uint64_t progress_pct = 1ull << 4;
+  static constexpr uint64_t detail = 1ull << 5;
+  static constexpr uint64_t t_received_ns = 1ull << 6;
+  static constexpr uint64_t t_sent_ns = 1ull << 7;
+  static constexpr uint64_t t_in_progress_ns = 1ull << 8;
+  static constexpr uint64_t t_terminal_ns = 1ull << 9;
+  static constexpr uint64_t attempts = 1ull << 10;
+  static constexpr uint64_t kCore = (1ull << 0) | (1ull << 1) | (1ull << 6);
+  static constexpr uint64_t kAll = (1ull << 0) | (1ull << 1) | (1ull << 2) | (1ull << 3) |
+      (1ull << 4) | (1ull << 5) | (1ull << 6) | (1ull << 7) |
+      (1ull << 8) | (1ull << 9) | (1ull << 10);
+};
+
+struct MissionState {
+  static constexpr uint64_t item_count = 1ull << 0;
+  static constexpr uint64_t current_item = 1ull << 1;
+  static constexpr uint64_t progress_pct = 1ull << 2;
+  static constexpr uint64_t run_state = 1ull << 3;
+  static constexpr uint64_t mission_id = 1ull << 4;
+  static constexpr uint64_t mission_hash = 1ull << 5;
+  static constexpr uint64_t last_upload_state = 1ull << 6;
+  static constexpr uint64_t last_upload_command_id = 1ull << 7;
+  static constexpr uint64_t kCore = 0;
+  static constexpr uint64_t kAll = (1ull << 0) | (1ull << 1) | (1ull << 2) | (1ull << 3) |
+      (1ull << 4) | (1ull << 5) | (1ull << 6) | (1ull << 7);
+};
+
 }  // namespace skyrelay::v1::valid

@@ -142,6 +142,15 @@ class Sequences(unittest.TestCase):
 
 
 class Units(unittest.TestCase):
+    def test_reserved_field_names_rejected(self):
+        for name in ("kCore", "kAll"):
+            with self.assertRaisesRegex(idl2gen.IdlError, rf"line \d+: field name '{name}' is reserved"):
+                idl2gen.parse(seq_idl(f"  double {name};   // unit: deg"))
+
+    def test_float_converter_checks_range(self):
+        out = idl2gen.generate(idl2gen.parse(SEQ_IDL))[idl2gen.JSON_HPP]
+        self.assertIn("std::isfinite(d) && std::fabs(d) > static_cast<double>(std::numeric_limits<T>::max())", out)
+
     def test_id_unit_only_on_uint64(self):
         with self.assertRaisesRegex(idl2gen.IdlError, r"line \d+: unit 'id' needs uint64"):
             idl2gen.parse(SEQ_IDL.replace("double b;                     // unit: deg",

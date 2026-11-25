@@ -8,6 +8,7 @@ add_executable(skyrelay_unit_tests
   unit/dds/json_test.cpp
   unit/dds/mapping_test.cpp
   unit/dds/qos_test.cpp
+  unit/dds/topics_test.cpp
   unit/gateway/fanout_test.cpp
   unit/gateway/static_files_test.cpp
   unit/mavlink/command_transaction_test.cpp

@@ -55,6 +55,54 @@ export type SigningState =
   | "SIGNING_ON"
   | "SIGNING_FAILED";
 
+export type CommandKind =
+  | "COMMAND_KIND_UNKNOWN"
+  | "COMMAND_KIND_ARM"
+  | "COMMAND_KIND_DISARM"
+  | "COMMAND_KIND_TAKEOFF"
+  | "COMMAND_KIND_LAND"
+  | "COMMAND_KIND_RETURN_HOME"
+  | "COMMAND_KIND_HOLD"
+  | "COMMAND_KIND_GOTO"
+  | "COMMAND_KIND_SET_SPEED"
+  | "COMMAND_KIND_SET_ALTITUDE"
+  | "COMMAND_KIND_SET_HEADING"
+  | "COMMAND_KIND_MISSION_UPLOAD"
+  | "COMMAND_KIND_MISSION_START"
+  | "COMMAND_KIND_MISSION_PAUSE"
+  | "COMMAND_KIND_MISSION_CLEAR"
+  | "COMMAND_KIND_GIMBAL_POINT"
+  | "COMMAND_KIND_CAMERA_ZOOM"
+  | "COMMAND_KIND_CAMERA_CAPTURE"
+  | "COMMAND_KIND_VIDEO_START"
+  | "COMMAND_KIND_VIDEO_STOP"
+  | "COMMAND_KIND_EMERGENCY_ABORT"
+  | "COMMAND_KIND_EMERGENCY_HOVER"
+  | "COMMAND_KIND_EMERGENCY_KILL";
+
+export type CommandState =
+  | "COMMAND_STATE_UNKNOWN"
+  | "COMMAND_STATE_RECEIVED"
+  | "COMMAND_STATE_SENT"
+  | "COMMAND_STATE_IN_PROGRESS"
+  | "COMMAND_STATE_ACCEPTED"
+  | "COMMAND_STATE_DENIED"
+  | "COMMAND_STATE_FAILED"
+  | "COMMAND_STATE_TIMED_OUT"
+  | "COMMAND_STATE_CANCELLED"
+  | "COMMAND_STATE_REJECTED_INVALID"
+  | "COMMAND_STATE_REJECTED_UNSUPPORTED"
+  | "COMMAND_STATE_REJECTED_BUSY"
+  | "COMMAND_STATE_REJECTED_UNAUTHORISED";
+
+export type MissionRunState =
+  | "MISSION_RUN_UNKNOWN"
+  | "MISSION_RUN_NONE"
+  | "MISSION_RUN_NOT_STARTED"
+  | "MISSION_RUN_ACTIVE"
+  | "MISSION_RUN_PAUSED"
+  | "MISSION_RUN_COMPLETE";
+
 export interface Header {
   seq: number;
   t_source_us: number;
@@ -128,6 +176,69 @@ export interface LinkStatus {
   signing: SigningState | null;
 }
 
+export interface Waypoint {
+  lat_deg: number | null;
+  lon_deg: number | null;
+  alt_rel_home_m: number | null;
+  hold_s: number | null;
+  acceptance_radius_m: number | null;
+}
+
+export interface CommandParams {
+  lat_deg: number | null;
+  lon_deg: number | null;
+  alt_rel_home_m: number | null;
+  ground_speed_mps: number | null;
+  heading_deg: number | null;
+  gimbal_pitch_deg: number | null;
+  gimbal_yaw_deg: number | null;
+  zoom_level: number | null;
+}
+
+export interface CommandRequest {
+  vehicle_id: number;
+  issuer_id: number;
+  command_id: string;
+  header: Header;
+  kind: CommandKind | null;
+  params: CommandParams;
+  waypoints: Waypoint[];
+  deadline_ms: number;
+  confirm_token: string;
+  operator_name: string;
+}
+
+export interface CommandStatus {
+  vehicle_id: number;
+  issuer_id: number;
+  command_id: string;
+  header: Header;
+  kind: CommandKind | null;
+  state: CommandState | null;
+  mav_result: number;
+  mission_result: number;
+  progress_pct: number | null;
+  detail: string;
+  t_received_ns: number;
+  t_sent_ns: number;
+  t_in_progress_ns: number;
+  t_terminal_ns: number;
+  attempts: number;
+}
+
+export interface MissionState {
+  vehicle_id: number;
+  header: Header;
+  item_count: number;
+  current_item: number;
+  progress_pct: number | null;
+  run_state: MissionRunState | null;
+  mission_id: number;
+  mission_hash: string;
+  last_upload_state: CommandState | null;
+  last_upload_command_id: string;
+}
+
 export const VehicleInfoValid = {
   autopilot: 1,
   firmware_version: 2,
@@ -182,4 +293,38 @@ export const LinkStatusValid = {
   loss_pct: 8,
   last_rx_age_ms: 16,
   signing: 32,
+} as const;
+
+export const CommandRequestValid = {
+  kind: 1,
+  params: 2,
+  waypoints: 4,
+  deadline_ms: 8,
+  confirm_token: 16,
+  operator_name: 32,
+} as const;
+
+export const CommandStatusValid = {
+  kind: 1,
+  state: 2,
+  mav_result: 4,
+  mission_result: 8,
+  progress_pct: 16,
+  detail: 32,
+  t_received_ns: 64,
+  t_sent_ns: 128,
+  t_in_progress_ns: 256,
+  t_terminal_ns: 512,
+  attempts: 1024,
+} as const;
+
+export const MissionStateValid = {
+  item_count: 1,
+  current_item: 2,
+  progress_pct: 4,
+  run_state: 8,
+  mission_id: 16,
+  mission_hash: 32,
+  last_upload_state: 64,
+  last_upload_command_id: 128,
 } as const;

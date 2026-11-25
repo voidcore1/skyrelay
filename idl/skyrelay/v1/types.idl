@@ -1,4 +1,4 @@
-// SkyRelay IDL v1, the M1 telemetry topics.
+// SkyRelay IDL v1: telemetry, commands and missions.
 //
 // Rules (see docs/adr/0006-idl-rules.md):
 //  - every struct is @appendable, every per-vehicle type has @key vehicle_id;
@@ -162,6 +162,153 @@ struct LinkStatus {
   float loss_pct;           // unit: %, core
   uint32 last_rx_age_ms;    // unit: ms, core
   SigningState signing;     // unit: -, core
+};
+
+
+@appendable
+enum CommandKind {
+  COMMAND_KIND_UNKNOWN,
+  COMMAND_KIND_ARM,
+  COMMAND_KIND_DISARM,
+  COMMAND_KIND_TAKEOFF,
+  COMMAND_KIND_LAND,
+  COMMAND_KIND_RETURN_HOME,
+  COMMAND_KIND_HOLD,
+  COMMAND_KIND_GOTO,
+  COMMAND_KIND_SET_SPEED,
+  COMMAND_KIND_SET_ALTITUDE,
+  COMMAND_KIND_SET_HEADING,
+  COMMAND_KIND_MISSION_UPLOAD,
+  COMMAND_KIND_MISSION_START,
+  COMMAND_KIND_MISSION_PAUSE,
+  COMMAND_KIND_MISSION_CLEAR,
+  COMMAND_KIND_GIMBAL_POINT,
+  COMMAND_KIND_CAMERA_ZOOM,
+  COMMAND_KIND_CAMERA_CAPTURE,
+  COMMAND_KIND_VIDEO_START,
+  COMMAND_KIND_VIDEO_STOP,
+  COMMAND_KIND_EMERGENCY_ABORT,
+  COMMAND_KIND_EMERGENCY_HOVER,
+  COMMAND_KIND_EMERGENCY_KILL
+};
+
+@appendable
+enum CommandState {
+  COMMAND_STATE_UNKNOWN,
+  COMMAND_STATE_RECEIVED,
+  COMMAND_STATE_SENT,
+  COMMAND_STATE_IN_PROGRESS,
+  COMMAND_STATE_ACCEPTED,
+  COMMAND_STATE_DENIED,
+  COMMAND_STATE_FAILED,
+  COMMAND_STATE_TIMED_OUT,
+  COMMAND_STATE_CANCELLED,
+  COMMAND_STATE_REJECTED_INVALID,
+  COMMAND_STATE_REJECTED_UNSUPPORTED,
+  COMMAND_STATE_REJECTED_BUSY,
+  COMMAND_STATE_REJECTED_UNAUTHORISED
+};
+
+// Mirrors MAVLink MISSION_STATE 0..5.
+@appendable
+enum MissionRunState {
+  MISSION_RUN_UNKNOWN,
+  MISSION_RUN_NONE,
+  MISSION_RUN_NOT_STARTED,
+  MISSION_RUN_ACTIVE,
+  MISSION_RUN_PAUSED,
+  MISSION_RUN_COMPLETE
+};
+
+@appendable
+struct Waypoint {
+  double lat_deg;               // unit: deg
+  double lon_deg;               // unit: deg
+  float alt_rel_home_m;         // unit: m
+  // NaN: no hold.
+  float hold_s;                 // unit: s
+  // NaN: autopilot default.
+  float acceptance_radius_m;    // unit: m
+};
+
+// Per-kind meaning is in docs/contract.md. A field a kind does not use is NaN,
+// and so is "keep the current value"; 0 is a value.
+@appendable
+struct CommandParams {
+  // GOTO
+  double lat_deg;               // unit: deg
+  // GOTO
+  double lon_deg;               // unit: deg
+  // TAKEOFF, GOTO, SET_ALTITUDE
+  float alt_rel_home_m;         // unit: m
+  // SET_SPEED; GOTO (NaN keeps)
+  float ground_speed_mps;       // unit: m/s
+  // SET_HEADING; GOTO (NaN keeps)
+  float heading_deg;            // unit: deg
+  // GIMBAL_POINT
+  float gimbal_pitch_deg;       // unit: deg
+  // GIMBAL_POINT
+  float gimbal_yaw_deg;         // unit: deg
+  // CAMERA_ZOOM
+  float zoom_level;             // unit: -
+};
+
+// command_request has several producer roles, so its key includes issuer_id.
+// header.seq counts per issuer and vehicle, header.t_bridge_ns is the issuer's
+// CLOCK_REALTIME at write, and header.t_source_us is 0.
+@appendable
+struct CommandRequest {
+  @key uint32 vehicle_id;               // unit: -
+  @key uint32 issuer_id;                // unit: -
+  @key uint64 command_id;               // unit: id
+  Header header;
+  CommandKind kind;                     // unit: -, core
+  CommandParams params;                 // unit: -, core
+  sequence<Waypoint, 500> waypoints;    // unit: -, core
+  uint32 deadline_ms;                   // unit: ms, core
+  uint64 confirm_token;                 // unit: id, core
+  string<64> operator_name;             // unit: -, core
+};
+
+@appendable
+struct CommandStatus {
+  @key uint32 vehicle_id;               // unit: -
+  @key uint32 issuer_id;                // unit: -
+  @key uint64 command_id;               // unit: id
+  Header header;
+  CommandKind kind;                     // unit: -, core
+  CommandState state;                   // unit: -, core
+  // Last COMMAND_ACK.result.
+  octet mav_result;                     // unit: -
+  // Last MISSION_ACK.type.
+  octet mission_result;                 // unit: -
+  float progress_pct;                   // unit: %
+  string<128> detail;                   // unit: -
+  uint64 t_received_ns;                 // unit: ns, core
+  uint64 t_sent_ns;                     // unit: ns
+  // First IN_PROGRESS.
+  uint64 t_in_progress_ns;              // unit: ns
+  uint64 t_terminal_ns;                 // unit: ns
+  // MAVLink sends, retries included.
+  octet attempts;                       // unit: -
+};
+
+@appendable
+struct MissionState {
+  @key uint32 vehicle_id;               // unit: -
+  Header header;
+  // Excluding an autopilot's home item.
+  uint16 item_count;                    // unit: -
+  // 0-based index into the uploaded items.
+  uint16 current_item;                  // unit: -
+  float progress_pct;                   // unit: %
+  MissionRunState run_state;            // unit: -
+  // Autopilot plan id (MISSION_ACK/MISSION_CURRENT); 0 clears the bit.
+  uint32 mission_id;                    // unit: -
+  // FNV-1a 64 of what this bridge uploaded.
+  uint64 mission_hash;                  // unit: id
+  CommandState last_upload_state;       // unit: -
+  uint64 last_upload_command_id;        // unit: id
 };
 
 };

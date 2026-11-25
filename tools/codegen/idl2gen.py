@@ -230,6 +230,9 @@ class Parser:
             self.err(line, f"unknown type '{tname}'")
         name_tok, name_line = self.peek()
         name = self.ident()
+        # kCore and kAll are the generated mask constants in valid::<Struct>.
+        if name in ("kCore", "kAll"):
+            self.err(name_line, f"field name '{name}' is reserved for the generated valid-bit masks")
         self.expect(";")
         # The unit comment sits on the line of the terminating ';'.
         raw = self.units.get(self.toks[self.i - 1][1])
@@ -350,7 +353,10 @@ template <class T>
 T get_float(const nlohmann::json& j, std::string_view path) {
   if (j.is_null()) return std::numeric_limits<T>::quiet_NaN();
   if (!j.is_number()) fail(path, "expected a number or null");
-  return static_cast<T>(j.get<double>());
+  const double d = j.get<double>();
+  if (std::isfinite(d) && std::fabs(d) > static_cast<double>(std::numeric_limits<T>::max()))
+    fail(path, "out of range");
+  return static_cast<T>(d);
 }
 
 inline bool get_bool(const nlohmann::json& j, std::string_view path) {

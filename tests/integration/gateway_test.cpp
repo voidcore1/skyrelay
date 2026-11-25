@@ -621,7 +621,7 @@ TEST(Gateway, StreamsPoseJson) {
   ASSERT_TRUE(hello);
   EXPECT_EQ(hello->body["type"], "hello");
   EXPECT_EQ(hello->body["version"], "0.1.0-preview");
-  EXPECT_EQ(hello->body["contract"], "1.0.0-preview.1");
+  EXPECT_EQ(hello->body["contract"], "1.0.0-preview.2");
   EXPECT_EQ(hello->body["insecure"], true);
   EXPECT_GT(hello->body["server_time_ns"].get<uint64_t>(), 0u);
 

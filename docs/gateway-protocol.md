@@ -106,7 +106,7 @@ objects.** A frame that is an array never holds anything else.
 On connect, before anything else:
 
 ```json
-{"type":"hello","version":"0.1.0-preview","contract":"1.0.0-preview.1","insecure":true,"server_time_ns":1795400000123456789}
+{"type":"hello","version":"0.1.0-preview","contract":"1.0.0-preview.2","insecure":true,"server_time_ns":1795400000123456789}
 ```
 
 `server_time_ns` is the gateway's `CLOCK_REALTIME`. `insecure` is always true in

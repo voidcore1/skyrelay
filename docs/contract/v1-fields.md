@@ -91,6 +91,79 @@ Class is `core` for fields every supported autopilot has to supply and
 | `last_rx_age_ms` | `uint32` | 4 | ms | core |
 | `signing` | `SigningState` | 5 | - | core |
 
+## Waypoint
+
+| field | type | bit | unit | class |
+|---|---|---|---|---|
+| `lat_deg` | `double` | - | deg | - |
+| `lon_deg` | `double` | - | deg | - |
+| `alt_rel_home_m` | `float` | - | m | - |
+| `hold_s` | `float` | - | s | - |
+| `acceptance_radius_m` | `float` | - | m | - |
+
+## CommandParams
+
+| field | type | bit | unit | class |
+|---|---|---|---|---|
+| `lat_deg` | `double` | - | deg | - |
+| `lon_deg` | `double` | - | deg | - |
+| `alt_rel_home_m` | `float` | - | m | - |
+| `ground_speed_mps` | `float` | - | m/s | - |
+| `heading_deg` | `float` | - | deg | - |
+| `gimbal_pitch_deg` | `float` | - | deg | - |
+| `gimbal_yaw_deg` | `float` | - | deg | - |
+| `zoom_level` | `float` | - | - | - |
+
+## CommandRequest
+
+| field | type | bit | unit | class |
+|---|---|---|---|---|
+| `vehicle_id` | `uint32` | - | - | - |
+| `issuer_id` | `uint32` | - | - | - |
+| `command_id` | `uint64` | - | id | - |
+| `header` | `Header` | - | - | - |
+| `kind` | `CommandKind` | 0 | - | core |
+| `params` | `CommandParams` | 1 | - | core |
+| `waypoints` | `sequence<Waypoint, 500>` | 2 | - | core |
+| `deadline_ms` | `uint32` | 3 | ms | core |
+| `confirm_token` | `uint64` | 4 | id | core |
+| `operator_name` | `string<64>` | 5 | - | core |
+
+## CommandStatus
+
+| field | type | bit | unit | class |
+|---|---|---|---|---|
+| `vehicle_id` | `uint32` | - | - | - |
+| `issuer_id` | `uint32` | - | - | - |
+| `command_id` | `uint64` | - | id | - |
+| `header` | `Header` | - | - | - |
+| `kind` | `CommandKind` | 0 | - | core |
+| `state` | `CommandState` | 1 | - | core |
+| `mav_result` | `octet` | 2 | - | extended |
+| `mission_result` | `octet` | 3 | - | extended |
+| `progress_pct` | `float` | 4 | % | extended |
+| `detail` | `string<128>` | 5 | - | extended |
+| `t_received_ns` | `uint64` | 6 | ns | core |
+| `t_sent_ns` | `uint64` | 7 | ns | extended |
+| `t_in_progress_ns` | `uint64` | 8 | ns | extended |
+| `t_terminal_ns` | `uint64` | 9 | ns | extended |
+| `attempts` | `octet` | 10 | - | extended |
+
+## MissionState
+
+| field | type | bit | unit | class |
+|---|---|---|---|---|
+| `vehicle_id` | `uint32` | - | - | - |
+| `header` | `Header` | - | - | - |
+| `item_count` | `uint16` | 0 | - | extended |
+| `current_item` | `uint16` | 1 | - | extended |
+| `progress_pct` | `float` | 2 | % | extended |
+| `run_state` | `MissionRunState` | 3 | - | extended |
+| `mission_id` | `uint32` | 4 | - | extended |
+| `mission_hash` | `uint64` | 5 | id | extended |
+| `last_upload_state` | `CommandState` | 6 | - | extended |
+| `last_upload_command_id` | `uint64` | 7 | id | extended |
+
 ## AutopilotKind
 
 `AUTOPILOT_UNKNOWN`, `AUTOPILOT_PX4`, `AUTOPILOT_ARDUPILOT`, `AUTOPILOT_OTHER`
@@ -118,3 +191,15 @@ Class is `core` for fields every supported autopilot has to supply and
 ## SigningState
 
 `SIGNING_OFF`, `SIGNING_ON`, `SIGNING_FAILED`
+
+## CommandKind
+
+`COMMAND_KIND_UNKNOWN`, `COMMAND_KIND_ARM`, `COMMAND_KIND_DISARM`, `COMMAND_KIND_TAKEOFF`, `COMMAND_KIND_LAND`, `COMMAND_KIND_RETURN_HOME`, `COMMAND_KIND_HOLD`, `COMMAND_KIND_GOTO`, `COMMAND_KIND_SET_SPEED`, `COMMAND_KIND_SET_ALTITUDE`, `COMMAND_KIND_SET_HEADING`, `COMMAND_KIND_MISSION_UPLOAD`, `COMMAND_KIND_MISSION_START`, `COMMAND_KIND_MISSION_PAUSE`, `COMMAND_KIND_MISSION_CLEAR`, `COMMAND_KIND_GIMBAL_POINT`, `COMMAND_KIND_CAMERA_ZOOM`, `COMMAND_KIND_CAMERA_CAPTURE`, `COMMAND_KIND_VIDEO_START`, `COMMAND_KIND_VIDEO_STOP`, `COMMAND_KIND_EMERGENCY_ABORT`, `COMMAND_KIND_EMERGENCY_HOVER`, `COMMAND_KIND_EMERGENCY_KILL`
+
+## CommandState
+
+`COMMAND_STATE_UNKNOWN`, `COMMAND_STATE_RECEIVED`, `COMMAND_STATE_SENT`, `COMMAND_STATE_IN_PROGRESS`, `COMMAND_STATE_ACCEPTED`, `COMMAND_STATE_DENIED`, `COMMAND_STATE_FAILED`, `COMMAND_STATE_TIMED_OUT`, `COMMAND_STATE_CANCELLED`, `COMMAND_STATE_REJECTED_INVALID`, `COMMAND_STATE_REJECTED_UNSUPPORTED`, `COMMAND_STATE_REJECTED_BUSY`, `COMMAND_STATE_REJECTED_UNAUTHORISED`
+
+## MissionRunState
+
+`MISSION_RUN_UNKNOWN`, `MISSION_RUN_NONE`, `MISSION_RUN_NOT_STARTED`, `MISSION_RUN_ACTIVE`, `MISSION_RUN_PAUSED`, `MISSION_RUN_COMPLETE`

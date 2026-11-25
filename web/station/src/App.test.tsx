@@ -235,7 +235,7 @@ test('live: a vehicle whose link_status stops coming, or is reported gone, turns
 
   act(() => {
     ws.open()
-    ws.deliver({ type: 'hello', version: '0.1.0-preview', contract: '1.0.0-preview.1', insecure: true, server_time_ns: 1 })
+    ws.deliver({ type: 'hello', version: '0.1.0-preview', contract: '1.0.0-preview.2', insecure: true, server_time_ns: 1 })
     ws.deliver([linkMsg(2, 'LINK_CONNECTED', 1), poseMsg(2, 47.39, 8.54)])
   })
   advance(500)
