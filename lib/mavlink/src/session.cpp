@@ -68,11 +68,15 @@ VehicleSession::VehicleSession(SessionConfig cfg, mav::Channel ch,
       health_pub_{period_of(cfg.rates.health_hz, "health_hz"), std::nullopt},
       started_(clock.mono()) {}
 
-void VehicleSession::on_bytes(std::span<const uint8_t> bytes) {
+bool VehicleSession::on_bytes(std::span<const uint8_t> bytes) {
   // Frames in one datagram arrived together, so they share one decode time.
   const MonoTime now = clock_.mono();
   const uint64_t rt = clock_.realtime_ns();
-  for (const auto& msg : framer_.push(bytes)) handle(msg, now, rt);
+  bool from_vehicle = false;
+  for (const auto& msg : framer_.push(bytes)) {
+    from_vehicle = handle(msg, now, rt) || from_vehicle;
+  }
+  return from_vehicle;
 }
 
 bool VehicleSession::accept(const mavlink_message_t& msg) {
@@ -93,9 +97,9 @@ bool VehicleSession::accept(const mavlink_message_t& msg) {
   return true;
 }
 
-void VehicleSession::handle(const mavlink_message_t& msg, MonoTime now,
+bool VehicleSession::handle(const mavlink_message_t& msg, MonoTime now,
                             uint64_t rt) {
-  if (!accept(msg)) return;
+  if (!accept(msg)) return false;
 
   bool resetup = false;
   if (auto tr = monitor_.on_message(now, msg.compid, msg.seq)) {
@@ -157,6 +161,7 @@ void VehicleSession::handle(const mavlink_message_t& msg, MonoTime now,
     // During a setup the info goes out once, when the setup is done.
     if (setup_complete_) publish_info();
   }
+  return true;
 }
 
 void VehicleSession::on_transition(const mav::LinkTransition& tr,

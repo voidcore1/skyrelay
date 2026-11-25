@@ -1,5 +1,6 @@
 add_library(skyrelay_mavlink src/framer.cpp src/packer.cpp
-  src/link_uri.cpp src/udp_link.cpp
+  src/link_uri.cpp src/link.cpp src/udp_link.cpp src/tcp_link.cpp
+  src/serial_link.cpp
   src/link_monitor.cpp src/command_transaction.cpp src/setup_sequence.cpp
   src/adapters/generic_adapter.cpp src/adapters/px4_adapter.cpp
   src/vehicle_model.cpp src/session.cpp)

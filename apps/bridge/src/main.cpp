@@ -33,12 +33,6 @@ namespace sdds = skyrelay::dds;
 using skyrelay::kContractVersion;
 using skyrelay::kVersion;
 
-std::string describe(const mav::LinkUri& u) {
-  const char* scheme =
-      u.scheme == mav::LinkScheme::UdpListen ? "udp://" : "udpout://";
-  return scheme + u.host + ":" + std::to_string(u.port);
-}
-
 int run(const std::string& config_path, std::optional<uint32_t> only,
         bool allow_network) {
   const bridge::BridgeConfig cfg = bridge::load_config(config_path);
@@ -92,10 +86,10 @@ int run(const std::string& config_path, std::optional<uint32_t> only,
     } catch (const boost::system::system_error& e) {
       throw std::runtime_error("vehicle " + std::to_string(v->id) + " (" +
                                v->name + "): cannot open " +
-                               describe(v->link) + ": " + e.code().message());
+                               mav::to_string(v->link) + ": " + e.code().message());
     }
     spdlog::info("vehicle {} ({}): {} on channel {}, {}", v->id, v->name,
-                 describe(v->link), index,
+                 mav::to_string(v->link), index,
                  v->sysid ? "sysid " + std::to_string(*v->sysid)
                           : std::string("first autopilot sysid"));
   }

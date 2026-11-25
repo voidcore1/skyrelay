@@ -93,14 +93,15 @@ SessionRunner::SessionRunner(const VehicleConfig& vehicle,
              ")"),
       log_sink_(label_, sink),
       timer_(io_) {
-  link_ = std::make_unique<mav::UdpLink>(
+  link_ = mav::open_link(
       io_, vehicle.link, [this](std::span<const uint8_t> bytes) {
-        if (stopping_) return;
+        if (stopping_) return false;
         // Caught here, so the link always goes on to its next receive.
         try {
-          session_->on_bytes(bytes);
+          return session_->on_bytes(bytes);
         } catch (const std::exception& e) {
           log_handler_error("receive", e);
+          return false;
         }
       });
   transport_.link = link_.get();

@@ -84,7 +84,9 @@ class VehicleSession {
                  Transport& transport, TelemetrySink& sink);
 
   // One datagram (or any slice of the byte stream) from the vehicle's link.
-  void on_bytes(std::span<const uint8_t> bytes);
+  // True if at least one frame in it came from the vehicle this session is
+  // locked to (the frame that locks it counts).
+  bool on_bytes(std::span<const uint8_t> bytes);
   // Link monitor, setup retries, GCS heartbeat and the periodic publishes.
   void tick();
 
@@ -103,7 +105,7 @@ class VehicleSession {
 
   // False if the frame must not reach the model or the monitor.
   bool accept(const mavlink_message_t& msg);
-  void handle(const mavlink_message_t& msg, MonoTime now, uint64_t rt);
+  bool handle(const mavlink_message_t& msg, MonoTime now, uint64_t rt);
   void on_transition(const mav::LinkTransition& tr, MonoTime now);
   void begin_setup(MonoTime now);
   void drive_setup(MonoTime now);

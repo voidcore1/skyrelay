@@ -35,9 +35,9 @@ TEST(UdpLink, ListenRepliesToLastSender) {
   std::string a_got;
   std::string b_got;
   UdpLink a(io, LinkUri{LinkScheme::UdpListen, "127.0.0.1", 0},
-            [&](std::span<const uint8_t> d) { a_got = text_of(d); });
+            [&](std::span<const uint8_t> d) { a_got = text_of(d); return true; });
   UdpLink b(io, LinkUri{LinkScheme::UdpOut, "127.0.0.1", a.local_port()},
-            [&](std::span<const uint8_t> d) { b_got = text_of(d); });
+            [&](std::span<const uint8_t> d) { b_got = text_of(d); return true; });
 
   b.send(bytes_of("ping"));
   ASSERT_TRUE(run_until(io, [&] { return !a_got.empty(); }));
@@ -65,7 +65,7 @@ TEST(UdpLink, DestroyBeforeDrainIsSafe) {
   UdpLink peer(io, LinkUri{LinkScheme::UdpListen, "127.0.0.1", 0}, nullptr);
   {
     UdpLink link(io, LinkUri{LinkScheme::UdpOut, "127.0.0.1", peer.local_port()},
-                 [&](std::span<const uint8_t>) { ++rx_calls; });
+                 [&](std::span<const uint8_t>) { ++rx_calls; return true; });
     link.send(bytes_of("late"));
   }
   io.run_for(std::chrono::milliseconds(50));
@@ -78,7 +78,7 @@ TEST(UdpLink, LargeDatagramArrivesWhole) {
   boost::asio::io_context io;
   std::vector<uint8_t> got;
   UdpLink a(io, LinkUri{LinkScheme::UdpListen, "127.0.0.1", 0},
-            [&](std::span<const uint8_t> d) { got.assign(d.begin(), d.end()); });
+            [&](std::span<const uint8_t> d) { got.assign(d.begin(), d.end()); return true; });
   UdpLink b(io, LinkUri{LinkScheme::UdpOut, "127.0.0.1", a.local_port()}, nullptr);
 
   std::vector<uint8_t> big(60000);
@@ -87,4 +87,33 @@ TEST(UdpLink, LargeDatagramArrivesWhole) {
   ASSERT_TRUE(run_until(io, [&] { return !got.empty(); }));
   EXPECT_EQ(got.size(), big.size());
   EXPECT_EQ(got, big);
+}
+
+// The reply peer is the last sender whose datagram the handler accepted, so a
+// stray sender cannot take the link over.
+TEST(UdpLink, ListenRepliesOnlyToAcceptedSender) {
+  boost::asio::io_context io;
+  std::string a_got;
+  UdpLink a(io, LinkUri{LinkScheme::UdpListen, "127.0.0.1", 0},
+            [&](std::span<const uint8_t> d) {
+              a_got += text_of(d);
+              return text_of(d) == "from-y";
+            });
+  std::string x_got;
+  std::string y_got;
+  UdpLink x(io, LinkUri{LinkScheme::UdpOut, "127.0.0.1", a.local_port()},
+            [&](std::span<const uint8_t> d) { x_got = text_of(d); return true; });
+  UdpLink y(io, LinkUri{LinkScheme::UdpOut, "127.0.0.1", a.local_port()},
+            [&](std::span<const uint8_t> d) { y_got = text_of(d); return true; });
+
+  y.send(bytes_of("from-y"));
+  ASSERT_TRUE(run_until(io, [&] { return a_got == "from-y"; }));
+  x.send(bytes_of("from-x"));
+  ASSERT_TRUE(run_until(io, [&] { return a_got == "from-yfrom-x"; }));
+
+  a.send(bytes_of("pong"));
+  ASSERT_TRUE(run_until(io, [&] { return !y_got.empty(); }));
+  EXPECT_EQ(y_got, "pong");
+  io.run_for(std::chrono::milliseconds(50));
+  EXPECT_TRUE(x_got.empty());
 }

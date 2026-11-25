@@ -156,8 +156,35 @@ TEST(Config, RejectsBadValuesNamingTheKey) {
   EXPECT_NE(error_of("link: { lost_gap_ms: abc }\n" + vehicles_yaml(1))
                 .find("link.lost_gap_ms"),
             std::string::npos);
-  EXPECT_NE(error_of("vehicles:\n  - { id: 1, link: \"tcp://1.2.3.4:5\" }\n")
+  EXPECT_NE(error_of("vehicles:\n  - { id: 1, link: \"ftp://1.2.3.4:5\" }\n")
                 .find("vehicles[0].link"),
             std::string::npos);
   EXPECT_NE(error_of("vehicles: []\n").find("vehicles"), std::string::npos);
+}
+
+TEST(Config, AcceptsTcpAndSerialLinks) {
+  const BridgeConfig c = parse_config(
+      "vehicles:\n"
+      "  - { id: 1, link: \"tcp://127.0.0.1:5760\" }\n"
+      "  - { id: 2, link: \"serial:///dev/ttyUSB0:57600\" }\n");
+  EXPECT_EQ(c.vehicles[0].link.scheme, mav::LinkScheme::TcpClient);
+  EXPECT_EQ(c.vehicles[1].link.scheme, mav::LinkScheme::Serial);
+  EXPECT_EQ(c.vehicles[1].link.device, "/dev/ttyUSB0");
+}
+
+TEST(Config, RejectsDuplicateTcpPeerAndSerialDevice) {
+  const std::string tcp = error_of(
+      "vehicles:\n"
+      "  - { id: 1, link: \"tcp://10.0.0.5:5760\" }\n"
+      "  - { id: 2, link: \"tcp://10.0.0.5:5760\" }\n");
+  EXPECT_EQ(tcp.rfind("vehicles[1].link:", 0), 0u) << tcp;
+  EXPECT_NE(tcp.find("10.0.0.5:5760"), std::string::npos) << tcp;
+  const std::string serial = error_of(
+      "vehicles:\n"
+      "  - { id: 1, link: \"serial:///dev/ttyUSB0:57600\" }\n"
+      "  - { id: 2, link: \"serial:///dev/ttyUSB1:57600\" }\n"
+      "  - { id: 3, link: \"serial:///dev/ttyUSB0:115200\" }\n");
+  EXPECT_EQ(serial,
+            "vehicles[2].link: serial device /dev/ttyUSB0 already used by "
+            "vehicles[0]");
 }

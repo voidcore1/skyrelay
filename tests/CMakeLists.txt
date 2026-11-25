@@ -30,6 +30,7 @@ skyrelay_enable_warnings(skyrelay_unit_tests)
 gtest_discover_tests(skyrelay_unit_tests PROPERTIES LABELS unit)
 
 add_executable(skyrelay_integration_tests integration/udp_link_test.cpp
+  integration/tcp_link_test.cpp integration/serial_link_test.cpp
   integration/dds_domain_test.cpp integration/dds_roundtrip_test.cpp
   integration/dds_sink_test.cpp integration/session_runner_test.cpp
   integration/gateway_test.cpp)
