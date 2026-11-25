@@ -1,0 +1,17 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "skyrelay",
+  "version-string": "0.1.0-preview",
+  "builtin-baseline": "277978ad2eddc3b05ecf288dcd33071968cd2f79",
+  "dependencies": [
+    "boost-asio",
+    "boost-beast",
+    { "name": "cyclonedds", "default-features": false, "features": ["idlc", "deadline-missed", "lifespan", "type-discovery", "topic-discovery", "ipv6", "source-specific-multicast"] },
+    { "name": "cyclonedds-cxx", "features": ["idllib"] },
+    "nlohmann-json",
+    "yaml-cpp",
+    "cli11",
+    "spdlog",
+    "gtest"
+  ]
+}

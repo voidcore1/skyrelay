@@ -1,0 +1,812 @@
+/*
+ * SkyRelay station. One dark substrate, one typeface, hard edges.
+ * Colour carries meaning only: link state (set per element as --state from
+ * src/state/link.ts, also for the gateway connection), hazard red for the
+ * insecure banner, and amber when p99 is over the 100 ms target.
+ */
+
+:root {
+  color-scheme: dark;
+
+  --bg: #0a0a0a;
+  --panel: #111111;
+  --raised: #171717;
+  --line: #262626;
+  --line-strong: #3a3a3a;
+  --fg: #eaeaea;
+  --fg-dim: #9a9a94;
+  /* At least 4.5:1 on every background it is used on (--bg, --panel and
+     --lost-row): 4.99, 4.76 and 4.84. */
+  --fg-faint: #80807b;
+  --hazard: #ff2a2a;
+  --warn: #ffb000;
+  --lost-row: #1c0909;
+
+  --mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, 'Liberation Mono', monospace;
+  --micro: 10px;
+  --small: 11px;
+  --base: 12px;
+
+  font-family: var(--mono);
+  font-size: var(--base);
+  line-height: 1.35;
+  font-feature-settings: 'zero' 1;
+  color: var(--fg);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  overflow: hidden;
+}
+
+h1,
+h2,
+p,
+dl,
+dd,
+ul {
+  margin: 0;
+  padding: 0;
+}
+
+a {
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--fg);
+  outline-offset: 1px;
+}
+
+/* ---------- frame ---------- */
+
+.station {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  height: 100vh;
+  height: 100dvh;
+  gap: 1px;
+  background: var(--line);
+}
+
+.station-demo {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.station > * {
+  background: var(--bg);
+}
+
+/* ---------- insecure banner ---------- */
+
+.insecure {
+  display: flex;
+  align-items: stretch;
+  gap: 14px;
+  min-height: 28px;
+  padding-right: 12px;
+  border-bottom: 2px solid var(--hazard);
+  font-size: var(--small);
+  letter-spacing: 0.06em;
+}
+
+.insecure::before {
+  content: '';
+  flex: 0 0 44px;
+  background: repeating-linear-gradient(-45deg, var(--hazard) 0 6px, var(--bg) 6px 12px);
+}
+
+.insecure-title {
+  align-self: center;
+  color: var(--hazard);
+  font-weight: 800;
+  font-size: var(--base);
+  letter-spacing: 0.14em;
+  white-space: nowrap;
+}
+
+.insecure-text {
+  align-self: center;
+  color: var(--fg);
+}
+
+.insecure-version {
+  align-self: center;
+  margin-left: auto;
+  color: var(--fg-dim);
+  white-space: nowrap;
+}
+
+/* ---------- top bar ---------- */
+
+.topbar {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 28px;
+  padding: 8px 14px;
+}
+
+.wordmark {
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  line-height: 0.9;
+}
+
+.wordmark-sub {
+  margin-left: 8px;
+  font-size: var(--small);
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  color: var(--fg-dim);
+  vertical-align: middle;
+}
+
+.meta {
+  display: flex;
+  gap: 1px;
+  min-width: 0;
+  background: var(--line);
+  justify-self: start;
+}
+
+.meta > div {
+  padding: 2px 12px;
+  background: var(--bg);
+  min-width: 0;
+}
+
+.meta dt {
+  font-size: var(--micro);
+  letter-spacing: 0.12em;
+  color: var(--fg-faint);
+}
+
+.meta dd {
+  font-size: var(--small);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gw {
+  font-weight: 700;
+  color: var(--state);
+}
+
+.clock {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.clock-zone {
+  margin-left: 6px;
+  font-size: var(--micro);
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  color: var(--fg-dim);
+}
+
+.station-demo .topbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+
+.demo-label {
+  font-weight: 700;
+  color: var(--fg-dim);
+}
+
+.demo-replay,
+.demo-replay-readout,
+.demo-replay-buttons {
+  display: flex;
+  align-items: center;
+}
+
+.demo-replay {
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin-inline-start: auto;
+  font-size: var(--small);
+}
+
+.demo-replay-readout {
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.demo-replay-label,
+.demo-replay-time {
+  color: var(--fg-dim);
+}
+
+.demo-replay-state {
+  min-width: 13ch;
+  font-weight: 700;
+}
+
+.demo-replay-time {
+  min-width: 11ch;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.demo-replay-buttons {
+  gap: 6px;
+}
+
+.demo-replay button {
+  min-height: 32px;
+  padding: 4px 9px;
+  border: 1px solid var(--fg-faint);
+  background: var(--raised);
+  color: var(--fg);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.demo-replay .demo-replay-toggle {
+  min-width: calc(10ch + 20px);
+  background: var(--fg);
+  color: var(--bg);
+}
+
+.demo-replay button:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* ---------- workspace ---------- */
+
+.workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 480px;
+  gap: 1px;
+  min-height: 0;
+  background: var(--line);
+}
+
+/* ---------- map ---------- */
+
+.map-wrap {
+  position: relative;
+  min-height: 0;
+  background: #1b1c1f;
+}
+
+/* Beats .maplibregl-map { position: relative }, which loads later. */
+.map-wrap > .map {
+  position: absolute;
+  inset: 0;
+}
+
+.map-tag {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  padding: 3px 8px;
+  background: var(--bg);
+  border: 1px solid var(--line-strong);
+  font-size: var(--micro);
+  letter-spacing: 0.14em;
+  color: var(--fg-dim);
+  pointer-events: none;
+}
+
+.map-tag::before {
+  content: '[ ';
+}
+
+.map-tag::after {
+  content: ' ]';
+}
+
+.map-error {
+  position: absolute;
+  left: 50%;
+  bottom: 40px;
+  transform: translateX(-50%);
+  max-width: min(560px, calc(100% - 32px));
+  padding: 10px 14px;
+  background: var(--bg);
+  border: 1px solid var(--hazard);
+  color: var(--fg);
+  font-size: var(--small);
+  line-height: 1.5;
+}
+
+.map-error code {
+  color: var(--hazard);
+}
+
+.map-wrap.schematic-wrap {
+  background: #1c2227;
+  container: schematic-pane / inline-size;
+}
+
+.schematic {
+  width: 100%;
+  height: 100%;
+}
+
+.schematic-labels {
+  fill: #bac5cb;
+  color: #bac5cb;
+  font-size: 16px;
+}
+
+.schematic-vehicle {
+  font-size: 17px;
+  font-weight: 700;
+  paint-order: stroke;
+  stroke: #1c2227;
+  stroke-width: 4px;
+  stroke-linejoin: round;
+}
+
+@container schematic-pane (max-width: 600px) {
+  .schematic-landmarks {
+    display: none;
+  }
+
+  .schematic-vehicle,
+  .schematic-north {
+    font-size: 32px;
+  }
+}
+
+/* MapLibre controls, squared off and dark. Scoped under .map-wrap so they
+   win over maplibre-gl.css, which loads after this file. */
+.map-wrap .maplibregl-ctrl-group,
+.map-wrap .maplibregl-ctrl-group:not(:empty) {
+  border-radius: 0;
+  background: var(--bg);
+  border: 1px solid var(--line-strong);
+  box-shadow: none;
+}
+
+.map-wrap .maplibregl-ctrl-group button {
+  width: 28px;
+  height: 28px;
+}
+
+.map-wrap .maplibregl-ctrl-group button + button {
+  border-top: 1px solid var(--line-strong);
+}
+
+.map-wrap .maplibregl-ctrl-group button:not(:disabled):hover {
+  background-color: var(--raised);
+}
+
+.map-wrap .maplibregl-ctrl-icon {
+  filter: invert(1);
+}
+
+.map-wrap .maplibregl-ctrl.maplibregl-ctrl-attrib {
+  margin: 0;
+  padding: 2px 8px;
+  border-radius: 0;
+  background: var(--bg);
+  border-top: 1px solid var(--line-strong);
+  border-left: 1px solid var(--line-strong);
+  font-family: var(--mono);
+  font-size: var(--micro);
+  letter-spacing: 0.04em;
+  color: var(--fg-dim);
+}
+
+.map-wrap .maplibregl-ctrl-attrib a {
+  color: var(--fg);
+}
+
+.map-wrap .maplibregl-ctrl-scale {
+  border-color: var(--fg-dim);
+  background: var(--bg);
+  color: var(--fg-dim);
+  font-family: var(--mono);
+  font-size: var(--micro);
+}
+
+/* ---------- panels ---------- */
+
+.panel {
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--panel);
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+.panel-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 12px;
+  padding: 10px 14px 9px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line-strong);
+}
+
+.panel-head h2 {
+  font-size: var(--base);
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+/* Demo mode only: the fleet below is made up. Inverted, like the demo's
+   primary button, so it reads as a label and not as a link state. */
+.panel-tag {
+  align-self: center;
+  padding: 1px 5px;
+  background: var(--fg);
+  color: var(--bg);
+  font-size: var(--micro);
+  font-weight: 800;
+  letter-spacing: 0.14em;
+}
+
+.panel-count {
+  white-space: nowrap;
+  font-size: var(--micro);
+  letter-spacing: 0.12em;
+  color: var(--fg-dim);
+}
+
+.tally {
+  display: flex;
+  gap: 12px;
+  margin-left: auto;
+  list-style: none;
+  font-size: var(--micro);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}
+
+.tally li {
+  white-space: nowrap;
+  color: var(--state);
+}
+
+.stale {
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--hazard);
+  background: var(--lost-row);
+  color: var(--fg);
+  font-size: var(--small);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.fleet[data-stale] .fleet-table,
+.fleet[data-stale] .tally {
+  opacity: 0.45;
+}
+
+.empty {
+  padding: 18px 14px;
+  color: var(--fg-dim);
+  font-size: var(--small);
+}
+
+/* ---------- fleet table ---------- */
+
+.fleet-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.fleet-table thead th {
+  padding: 6px 8px 5px;
+  font-size: var(--micro);
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  color: var(--fg-faint);
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+}
+
+.fleet-table thead th:first-child {
+  padding-left: 14px;
+}
+
+.fleet-table .num {
+  text-align: right;
+  padding-right: 14px;
+}
+
+.vehicle {
+  border-bottom: 1px solid var(--line);
+  box-shadow: inset 3px 0 0 var(--state);
+}
+
+.vehicle[data-link='LOST'] {
+  background: var(--lost-row);
+}
+
+.vehicle td,
+.vehicle th {
+  padding: 7px 8px 0;
+  text-align: left;
+  white-space: nowrap;
+  vertical-align: baseline;
+}
+
+.vehicle .c-id {
+  padding-left: 14px;
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.vehicle .c-ap,
+.vehicle .c-mode {
+  font-weight: 500;
+  letter-spacing: 0.06em;
+}
+
+.badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border: 1px solid transparent;
+  font-size: var(--small);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--state);
+}
+
+.badge::before {
+  content: '';
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 6px;
+  background: var(--state);
+  vertical-align: 1px;
+}
+
+.vehicle[data-link='DEGRADED'] .badge,
+.vehicle[data-link='RECOVERING'] .badge {
+  border-color: var(--state);
+}
+
+.vehicle[data-link='LOST'] .badge {
+  background: var(--state);
+  color: var(--bg);
+}
+
+.vehicle[data-link='LOST'] .badge::before {
+  background: var(--bg);
+}
+
+.vehicle[data-link='UNKNOWN'] .badge,
+.vehicle[data-link='STALE'] .badge {
+  font-weight: 500;
+}
+
+/* A stale row keeps its last values but reads as old. */
+.vehicle[data-link='STALE'] td,
+.vehicle[data-link='STALE'] th {
+  opacity: 0.55;
+}
+
+.armed {
+  padding: 1px 5px;
+  background: var(--fg);
+  color: var(--bg);
+  font-weight: 800;
+  letter-spacing: 0.1em;
+}
+
+.dim {
+  color: var(--fg-dim);
+}
+
+.vehicle .sub td {
+  padding: 3px 14px 8px 17px;
+  font-size: var(--small);
+  color: var(--fg-dim);
+  letter-spacing: 0.02em;
+}
+
+.sub .k {
+  color: var(--fg-faint);
+  letter-spacing: 0.1em;
+}
+
+.sub .sep {
+  margin: 0 8px;
+  color: var(--fg-faint);
+}
+
+/* ---------- status bar / HUD ---------- */
+
+.statusbar {
+  display: flex;
+  align-items: baseline;
+  gap: 24px;
+  padding: 7px 14px 8px;
+  min-width: 0;
+}
+
+.hud {
+  white-space: nowrap;
+  font-size: var(--small);
+  color: var(--fg-dim);
+  letter-spacing: 0.04em;
+}
+
+.hud-title {
+  margin-right: 6px;
+  color: var(--fg);
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.hud-v {
+  margin-left: 2px;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--fg);
+  letter-spacing: -0.02em;
+}
+
+.hud-v[data-over] {
+  color: var(--warn);
+}
+
+.hud-v-small {
+  font-size: 15px;
+}
+
+.hud-u {
+  margin-right: 4px;
+  color: var(--fg-dim);
+}
+
+.hud-sep {
+  margin: 0 8px;
+  color: var(--fg-faint);
+}
+
+.hud-note {
+  color: var(--fg-dim);
+  font-style: normal;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.hud-n {
+  margin-left: 8px;
+  color: var(--fg-faint);
+}
+
+.statusbar-note {
+  margin-left: auto;
+  font-size: var(--micro);
+  letter-spacing: 0.08em;
+  color: var(--fg-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---------- narrow screens: map over panel ---------- */
+
+@media (max-width: 1100px) {
+  .meta > div:nth-child(2) {
+    display: none;
+  }
+}
+
+@media (max-width: 900px) {
+  body {
+    overflow: auto;
+  }
+
+  .station {
+    height: auto;
+    min-height: 100dvh;
+  }
+
+  .topbar {
+    grid-template-columns: 1fr auto;
+    gap: 10px;
+  }
+
+  .meta {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    flex-wrap: wrap;
+  }
+
+  .workspace {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: 60vh auto;
+  }
+
+  .insecure-version,
+  .statusbar-note {
+    display: none;
+  }
+
+  .insecure::before {
+    flex-basis: 16px;
+  }
+
+  .insecure {
+    gap: 10px;
+    padding: 4px 10px 4px 0;
+  }
+
+  .panel {
+    overflow-x: auto;
+  }
+
+  .fleet-table thead th,
+  .vehicle td,
+  .vehicle th {
+    padding-left: 5px;
+    padding-right: 5px;
+  }
+
+  .fleet-table thead th:first-child,
+  .vehicle .c-id {
+    padding-left: 10px;
+  }
+
+  .vehicle .c-id {
+    font-size: 15px;
+  }
+
+  .badge {
+    padding: 1px 4px;
+  }
+
+  .statusbar {
+    overflow-x: auto;
+  }
+}
+
+@media (max-width: 600px) {
+  .demo-replay {
+    flex-basis: 100%;
+    margin-inline-start: 0;
+  }
+
+  .station-demo .workspace {
+    grid-template-rows: max-content auto;
+  }
+
+  .schematic-wrap {
+    aspect-ratio: 4 / 3;
+  }
+}

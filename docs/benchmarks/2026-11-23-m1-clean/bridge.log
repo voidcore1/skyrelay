@@ -1,0 +1,20 @@
+[2026-11-23 17:40:55.035] [info] skyrelay-bridge 0.1.0-preview (contract 1.0.0-preview.1), 4 vehicle(s), DDS domain 42 partition 'default'
+[2026-11-23 17:40:55.035] [warning] INSECURE PREVIEW: DDS restricted to loopback
+[2026-11-23 17:40:55.044] [info] vehicle 1 (px4-0): udp://0.0.0.0:14540 on channel 0
+[2026-11-23 17:40:55.044] [info] vehicle 2 (px4-1): udp://0.0.0.0:14541 on channel 1
+[2026-11-23 17:40:55.044] [info] vehicle 3 (px4-2): udp://0.0.0.0:14542 on channel 2
+[2026-11-23 17:40:55.045] [info] vehicle 4 (px4-3): udp://0.0.0.0:14543 on channel 3
+[2026-11-23 17:40:56.176] [info] vehicle 1 (px4-0): link RECOVERING (rx 1 Hz, loss 0.0 %)
+[2026-11-23 17:40:56.253] [info] vehicle 1 (px4-0): autopilot PX4 1.17.0, sysid 1 compid 1, multirotor
+[2026-11-23 17:40:56.306] [info] vehicle 4 (px4-3): link RECOVERING (rx 1 Hz, loss 0.0 %)
+[2026-11-23 17:40:56.307] [info] vehicle 2 (px4-1): link RECOVERING (rx 1 Hz, loss 0.0 %)
+[2026-11-23 17:40:56.310] [info] vehicle 3 (px4-2): link RECOVERING (rx 1 Hz, loss 0.0 %)
+[2026-11-23 17:40:56.380] [info] vehicle 3 (px4-2): autopilot PX4 1.17.0, sysid 3 compid 1, multirotor
+[2026-11-23 17:40:56.380] [info] vehicle 2 (px4-1): autopilot PX4 1.17.0, sysid 2 compid 1, multirotor
+[2026-11-23 17:40:56.384] [info] vehicle 4 (px4-3): autopilot PX4 1.17.0, sysid 4 compid 1, multirotor
+[2026-11-23 17:40:56.755] [info] vehicle 1 (px4-0): link CONNECTED (rx 153 Hz, loss 0.6 %)
+[2026-11-23 17:40:56.885] [info] vehicle 3 (px4-2): link CONNECTED (rx 151 Hz, loss 0.7 %)
+[2026-11-23 17:40:56.885] [info] vehicle 2 (px4-1): link CONNECTED (rx 151 Hz, loss 0.7 %)
+[2026-11-23 17:40:56.885] [info] vehicle 4 (px4-3): link CONNECTED (rx 151 Hz, loss 0.7 %)
+[2026-11-23 17:41:57.048] [info] signal 2, shutting down
+[2026-11-23 17:41:57.049] [info] stopped in 1 ms

@@ -1,0 +1,121 @@
+name: ci
+
+# Pull requests, and pushes to main once merged. A push to a branch with an
+# open pull request runs once, through the pull_request event.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  codegen:
+    name: codegen
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Generated files are current
+        run: python3 tools/codegen/idl2gen.py --check
+      # Every Python tool: codegen, latency report, licence check and the
+      # simulation heartbeat checker.
+      - name: Python tool tests
+        run: python3 -m unittest discover -s tests/unit/tools -v
+
+  web:
+    name: web station
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web/station
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: web/station/package-lock.json
+      - name: Install
+        run: npm ci
+      - name: Unit tests
+        run: npx vitest run
+      - name: Lint
+        run: npx eslint .
+      - name: Build
+        run: npm run build
+
+  cpp:
+    name: cpp (${{ matrix.image }})
+    runs-on: ubuntu-latest
+    # A cold run builds every vcpkg port from source.
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [ubuntu:24.04, ubuntu:26.04]
+    container:
+      image: ${{ matrix.image }}
+    steps:
+      - name: Install system packages
+        run: |
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build git curl zip unzip tar \
+            pkg-config libtool python3 ca-certificates gpg
+
+      # Ubuntu 24.04 ships CMake 3.28; the project is developed against 4.2.
+      - name: Install a current CMake from Kitware's apt repository
+        run: |
+          current="$(cmake --version | sed -n '1s/.* //p')"
+          if dpkg --compare-versions "$current" lt 4.2; then
+            . /etc/os-release
+            curl -fsSL https://apt.kitware.com/keys/kitware-archive-latest.asc \
+              | gpg --dearmor -o /usr/share/keyrings/kitware-archive-keyring.gpg
+            echo "deb [signed-by=/usr/share/keyrings/kitware-archive-keyring.gpg] https://apt.kitware.com/ubuntu/ ${VERSION_CODENAME} main" \
+              > /etc/apt/sources.list.d/kitware.list
+            apt-get update
+            apt-get install -y --no-install-recommends cmake
+          fi
+          cmake --version
+
+      - uses: actions/checkout@v4
+
+      - name: Set up vcpkg
+        uses: ./.github/actions/setup-vcpkg
+        with:
+          root: /opt/vcpkg
+          binary-cache: /root/.cache/vcpkg/archives
+          cache-key: vcpkg-${{ matrix.image }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'cmake/vcpkg-ports/**') }}
+          restore-key: vcpkg-${{ matrix.image }}-
+
+      - name: Configure
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          cmake --preset dev
+
+      - name: Build
+        run: cmake --build --preset dev
+
+      # No GPL or AGPL code may be linked into SkyRelay. Every installed port is
+      # checked, test-only ones included. A documented exception would be added
+      # here as --allow <port>; there are none.
+      - name: Licence check
+        run: python3 tools/check_licenses.py build/dev/vcpkg_installed/x64-linux/share
+
+      - name: Unit tests
+        run: ctest --preset dev -L unit
+
+      # DDS round trips, the UDP link, the session runner and the gateway, all
+      # over loopback inside the container. Gateway.SlowClientDoesNotStallOthers
+      # bounds a delivery at 200 ms; on a busy shared runner a failing test gets
+      # one more try instead of a looser bound.
+      - name: Integration tests
+        run: ctest --preset dev -L integration --repeat until-pass:2

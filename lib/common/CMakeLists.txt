@@ -1,0 +1,5 @@
+add_library(skyrelay_common src/clock.cpp)
+add_library(skyrelay::common ALIAS skyrelay_common)
+target_include_directories(skyrelay_common PUBLIC include)
+target_compile_features(skyrelay_common PUBLIC cxx_std_20)
+skyrelay_enable_warnings(skyrelay_common)

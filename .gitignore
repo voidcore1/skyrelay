@@ -38,3 +38,8 @@ logs/
 *.key
 *.pem
 secrets/
+
+# vcpkg, runtime data and benchmark output
+vcpkg_installed/
+/data/
+bench/results/
