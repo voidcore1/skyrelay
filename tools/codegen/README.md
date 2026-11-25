@@ -24,8 +24,9 @@ together. The files are generated deterministically (no timestamps).
 Only the subset the IDL rules allow: modules, `@appendable` and `@key`,
 structs, enums, the primitive types, `string<N>`, and nested struct members.
 Unions, sequences, maps, typedefs and `@optional` are errors with a line
-number. Every data field needs a trailing `// unit: <unit>` comment on the
-same line, because the field table reads it.
+number, and so is a struct without `@appendable`. Every data field needs a
+trailing `// unit: <unit>` comment on the same line, because the field table
+reads it.
 
 ## Conventions
 

@@ -1,8 +1,11 @@
-# Generated C++ for the IDL. -Wno-implicit-extensibility is off by default
-# anyway; every type is annotated explicitly.
+# Generated C++ for the IDL. Every struct must be @appendable, and
+# tools/codegen/idl2gen.py (run with --check in CI) rejects one that is not
+# annotated. idlc itself would default an unannotated type to final, so it is
+# told to default to appendable instead: a missed annotation can never put a
+# final type on the wire.
 idlcxx_generate(TARGET skyrelay_idl
   FILES ${PROJECT_SOURCE_DIR}/idl/skyrelay/v1/types.idl
-  WARNINGS no-implicit-extensibility)
+  DEFAULT_EXTENSIBILITY appendable)
 # Generated code is not ours to hold to -Werror -Wconversion.
 skyrelay_system_includes(skyrelay_idl)
 get_target_property(_idl_inc skyrelay_idl INTERFACE_INCLUDE_DIRECTORIES)

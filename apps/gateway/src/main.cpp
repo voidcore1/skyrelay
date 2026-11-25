@@ -72,12 +72,7 @@ void run_io(asio::io_context& io) {
 int run(const Options& o) {
   spdlog::info("skyrelay-gateway {} (contract {}), DDS domain {} partition '{}'",
                kVersion, kContractVersion, o.dds.domain_id, o.dds.partition);
-  if (o.dds.allow_network) {
-    spdlog::warn("INSECURE PREVIEW: DDS open on every network interface, "
-                 "without security");
-  } else {
-    spdlog::warn("INSECURE PREVIEW: DDS restricted to loopback");
-  }
+  spdlog::warn("INSECURE PREVIEW: {}", sdds::exposure_summary(o.dds));
   spdlog::warn("INSECURE PREVIEW: HTTP and WebSocket without TLS or "
                "authentication, loopback only");
   if (!fs::is_directory(o.web_root)) {
@@ -172,8 +167,9 @@ int main(int argc, char** argv) {
                  "Also accept /ws from this browser origin, e.g. "
                  "http://localhost:5173 for a development server (repeatable)");
   app.add_flag("--insecure-allow-network", o.dds.allow_network,
-               "Let DDS use non-loopback interfaces. There is no DDS "
-               "security in this preview.");
+               "Let DDS use non-loopback interfaces. Every SkyRelay "
+               "process on this host (bridge, gateway, probe) must then set "
+               "it too. There is no DDS security in this preview.");
   CLI11_PARSE(app, argc, argv);
 
   const auto ep = gw::parse_listen(listen);

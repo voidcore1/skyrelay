@@ -18,12 +18,31 @@ std::string cyclone_config_xml(const DomainConfig& c) {
         "</General>"
         "<Discovery>"
         "<ParticipantIndex>auto</ParticipantIndex>"
-        "<MaxAutoParticipantIndex>64</MaxAutoParticipantIndex>"
+        "<MaxAutoParticipantIndex>" +
+        std::to_string(kMaxAutoParticipantIndex) +
+        "</MaxAutoParticipantIndex>"
         "<Peers><Peer address=\"127.0.0.1\"/></Peers>"
         "</Discovery>";
   }
   x += "</Domain></CycloneDDS>";
   return x;
+}
+
+PortRange loopback_udp_ports(uint32_t domain_id) {
+  const uint32_t base = 7400 + 250 * domain_id;
+  return {base + 10, base + 11 + 2 * kMaxAutoParticipantIndex};
+}
+
+std::string exposure_summary(const DomainConfig& c) {
+  if (c.allow_network) {
+    return "DDS open on every network interface, without security";
+  }
+  const PortRange r = loopback_udp_ports(c.domain_id);
+  return "DDS sends and advertises only on loopback, but its receive sockets "
+         "accept UDP " +
+         std::to_string(r.first) + "-" + std::to_string(r.last) +
+         " on every interface; block those ports to other hosts or stay on a "
+         "trusted network";
 }
 
 ::dds::domain::DomainParticipant open_participant(const DomainConfig& c) {

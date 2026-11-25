@@ -5,8 +5,12 @@ publishes. The types are defined in `idl/skyrelay/v1/types.idl`, and where this
 page and the IDL disagree, the IDL is right. The reasons for the rules are in
 [ADR-0006](adr/0006-idl-rules.md).
 
-**INSECURE PREVIEW.** There is no authentication or encryption in M1. The
-default DDS domain only listens on the loopback interface.
+**INSECURE PREVIEW.** There is no authentication or encryption in M1. In the
+default configuration DDS sends and advertises only on the loopback interface,
+but Cyclone DDS binds its receive sockets to every interface, so another host
+that can reach UDP 17910–18039 (domain 42) could inject samples. Block those
+ports to other hosts with a host firewall, or use a trusted network, until
+DDS-Security arrives in M3.
 
 ## Conventions
 
@@ -129,6 +133,10 @@ valid when the vehicle has it.
 | 3 | `loss_pct` | `float` | % | core |
 | 4 | `last_rx_age_ms` | `uint32` | ms | core |
 | 5 | `signing` | `SigningState` | - | core |
+
+`last_rx_age_ms` is the time since the bridge last received a valid frame from
+the vehicle. It is `4294967295` (`UINT32_MAX`) when nothing has been received
+yet, and for any age of 49.7 days or more; the field is valid in both cases.
 
 ## Enums
 

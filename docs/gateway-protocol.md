@@ -14,7 +14,11 @@ skyrelay-gateway --listen 127.0.0.1:8080 --web-root web/station/dist --data-dir 
                  [--domain 42 --partition default --insecure-allow-network]
 ```
 
-`--insecure-allow-network` only affects DDS, the same way as for the bridge.
+`--insecure-allow-network` only affects DDS, the same way as for the bridge,
+and it has to match: give it to every SkyRelay process on the host (bridge,
+gateway, `skyrelay-bench-probe`) or to none. A participant in the default
+loopback configuration does not discover one that uses the network, so a
+gateway without the flag next to a bridge with it shows no vehicles.
 
 ## Security in the preview
 

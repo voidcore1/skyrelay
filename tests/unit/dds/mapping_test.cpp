@@ -1,6 +1,9 @@
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <cmath>
+#include <cstdint>
+#include <limits>
 
 #include "skyrelay/common/version.hpp"
 #include "skyrelay/dds/gen/v1_valid_bits.hpp"
@@ -112,6 +115,44 @@ TEST(Mapping, LinkStatusAlwaysFullAndSigningOff) {
   EXPECT_FLOAT_EQ(s.rx_rate_hz(), 12.5f);
   EXPECT_EQ(s.last_rx_age_ms(), 40u);
   EXPECT_EQ(s.signing(), v1::SigningState::SIGNING_OFF);
+}
+
+TEST(Mapping, LastRxAgeIsClampedToTheField) {
+  LinkStatusData d;
+  // Never received: the monitor's sentinel becomes UINT32_MAX, not a wrap.
+  d.stats = {0.0, 0.0, std::chrono::milliseconds::max()};
+  EXPECT_EQ(to_idl(1, d, {}, 0).last_rx_age_ms(), UINT32_MAX);
+  d.stats.last_rx_age = std::chrono::milliseconds(int64_t{UINT32_MAX} + 1);
+  EXPECT_EQ(to_idl(1, d, {}, 0).last_rx_age_ms(), UINT32_MAX);
+  d.stats.last_rx_age = std::chrono::milliseconds(int64_t{UINT32_MAX} - 1);
+  EXPECT_EQ(to_idl(1, d, {}, 0).last_rx_age_ms(), UINT32_MAX - 1);
+  d.stats.last_rx_age = std::chrono::milliseconds(-5);
+  EXPECT_EQ(to_idl(1, d, {}, 0).last_rx_age_ms(), 0u);
+}
+
+// An infinity is not a measurement either: written as NaN with the bit
+// cleared, the same as a NaN.
+TEST(Mapping, InfinityIsUnavailable) {
+  PoseData p;
+  p.lat_deg = 47.0;
+  p.lon_deg = std::numeric_limits<double>::infinity();
+  p.heading_deg = -std::numeric_limits<float>::infinity();
+  auto s = to_idl(1, p, {}, 0);
+  EXPECT_TRUE(s.header().valid_mask() & valid::Pose::lat_deg);
+  EXPECT_FALSE(s.header().valid_mask() & valid::Pose::lon_deg);
+  EXPECT_FALSE(s.header().valid_mask() & valid::Pose::heading_deg);
+  EXPECT_DOUBLE_EQ(s.lat_deg(), 47.0);
+  EXPECT_TRUE(std::isnan(s.lon_deg()));
+  EXPECT_TRUE(std::isnan(s.heading_deg()));
+
+  HealthData h;
+  h.battery_voltage_v = std::numeric_limits<float>::infinity();
+  h.battery_remaining_pct = 55.0f;
+  auto hs = to_idl(1, h, {}, 0);
+  EXPECT_FALSE(hs.header().valid_mask() & valid::Health::battery_voltage_v);
+  EXPECT_TRUE(std::isnan(hs.battery_voltage_v()));
+  EXPECT_TRUE(hs.header().valid_mask() & valid::Health::battery_remaining_pct);
+  EXPECT_FLOAT_EQ(hs.battery_remaining_pct(), 55.0f);
 }
 
 TEST(Mapping, EnumConversionsCoverEveryValue) {

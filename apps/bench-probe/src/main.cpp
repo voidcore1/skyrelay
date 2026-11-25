@@ -2,6 +2,7 @@
 //
 //   --duration S --out FILE   timestamp every pose sample, write a CSV
 //   --wait-connected N        exit 0 once N vehicles report LINK_CONNECTED
+//   --insecure-allow-network  needed when the bridge runs with it
 //
 // The receive time is taken with CLOCK_REALTIME inside on_data_available, the
 // same clock the bridge uses for t_bridge_ns, so the difference is the time
@@ -182,6 +183,10 @@ int main(int argc, char** argv) {
                             "Wait until N vehicles report LINK_CONNECTED");
   app.add_option("--timeout", timeout, "Seconds to wait for --wait-connected")
       ->needs(wc);
+  bool allow_network = false;
+  app.add_flag("--insecure-allow-network", allow_network,
+               "Let DDS use non-loopback interfaces, to match a bridge started "
+               "with the same flag. There is no DDS security in this preview.");
   CLI11_PARSE(app, argc, argv);
 
   std::signal(SIGINT, on_signal);
@@ -189,6 +194,11 @@ int main(int argc, char** argv) {
   sdds::DomainConfig dc;
   dc.domain_id = domain;
   dc.partition = partition;
+  dc.allow_network = allow_network;
+  if (allow_network) {
+    std::fprintf(stderr, "skyrelay-bench-probe: INSECURE PREVIEW: %s\n",
+                 sdds::exposure_summary(dc).c_str());
+  }
   try {
     return wc->count() ? wait_connected(dc, wait_n, timeout)
                        : record(dc, duration, out);

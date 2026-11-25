@@ -11,13 +11,17 @@ implementations of it.
 ## Status
 
 **`v0.1.0-preview` — INSECURE PREVIEW.** There is no security yet: no
-DDS-Security, no MAVLink signing, no TLS or authentication at the gateway. DDS
-and the gateway are confined to loopback, and the station shows an INSECURE
-PREVIEW banner, which cannot be closed, whenever it talks to a gateway. The
-bridge's MAVLink ports (UDP 14540–14543) listen on every interface so the
-simulation containers can reach them, and MAVLink is unsigned, so run it on a
-machine and network you trust and do not expose it. Security arrives in M3
-(see [Roadmap](#roadmap)).
+DDS-Security, no MAVLink signing, no TLS or authentication at the gateway. The
+gateway listens on loopback only, and the station shows an INSECURE PREVIEW
+banner, which cannot be closed, whenever it talks to a gateway. DDS sends and
+advertises only on loopback, but Cyclone DDS binds its receive sockets to
+every interface, so another host that can reach UDP 17910–18039 (domain 42)
+could inject DDS traffic, such as a fake pose or link state. The bridge's
+MAVLink ports (UDP 14540–14543) also listen on every interface so the
+simulation containers can reach them, and MAVLink is unsigned. Block those
+ports to other hosts with a host firewall, or run on a machine and network you
+trust, and do not expose it. Security arrives in M3 (see
+[Roadmap](#roadmap)).
 
 What works today, telemetry only:
 
@@ -64,7 +68,7 @@ benchmark you can rerun. The evidence is in the
         │  MAVLink 2 over UDP, host ports 14540–14543
         ▼
   skyrelay-bridge           one session per vehicle, link monitor
-        │  DDS: skyrelay/v1/* topics, domain 42, loopback only
+        │  DDS: skyrelay/v1/* topics, domain 42, sent on loopback
         ├──────────────────────────────┐
         ▼                              ▼
   skyrelay-gateway          skyrelay-bench-probe
@@ -151,6 +155,13 @@ If no vehicle shows up, stop the bridge and run
 whether the simulation is sending; [sim/README.md](sim/README.md) has the
 details. For working on the station with Vite's dev server, see
 [docs/gateway-protocol.md](docs/gateway-protocol.md).
+
+DDS sends and advertises only on loopback unless the bridge is started with
+`--insecure-allow-network`, which lets it use every interface, still without
+any security. The flag has to be given to every SkyRelay process on the host,
+the gateway and `skyrelay-bench-probe` included: a participant on loopback and
+one on the network do not discover each other, so a gateway without it shows
+no vehicles.
 
 ## Quick look without the simulation
 

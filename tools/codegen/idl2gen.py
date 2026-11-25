@@ -150,7 +150,7 @@ class Parser:
                 self.expect("}")
                 self.expect(";")
             elif t == "struct":
-                self.struct(line)
+                self.struct(line, annotations)
             elif t == "enum":
                 self.enum()
             else:
@@ -180,8 +180,12 @@ class Parser:
         self.model.enums.append(e)
         self.enum_names.add(e.name)
 
-    def struct(self, line):
+    def struct(self, line, annotations):
         s = Struct(self.ident())
+        # Every struct is extensible by appending (ADR-0006); a struct without
+        # the annotation would be final in idlc's eyes.
+        if "@appendable" not in annotations:
+            self.err(line, f"struct {s.name} must be annotated @appendable")
         self.expect("{")
         while self.peek()[0] != "}":
             s.fields.append(self.member(s))

@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
+#include <limits>
 #include <string>
 #include <type_traits>
 
@@ -115,15 +117,17 @@ v1::Header header(const vd::Stamp& st, uint64_t seq, uint64_t mask) {
 }
 
 // Accumulates the mask while a field is copied, so the rule lives in one
-// place: floats by !isnan, optionals by has_value.
+// place: floats by isfinite, optionals by has_value.
 struct Mask {
   uint64_t bits = 0;
   void set(uint64_t bit) { bits |= bit; }
+  // The value to write: v if it is finite, with its bit set; otherwise NaN,
+  // with the bit cleared. An infinity is no more a measurement than a NaN.
   template <class F>
-  bool flt(uint64_t bit, F v) {
-    if (std::isnan(v)) return false;
+  F flt(uint64_t bit, F v) {
+    if (!std::isfinite(v)) return std::numeric_limits<F>::quiet_NaN();
     bits |= bit;
-    return true;
+    return v;
   }
   template <class T>
   bool opt(uint64_t bit, const std::optional<T>& v) {
@@ -185,31 +189,19 @@ v1::Pose to_idl(uint32_t vid, const vd::PoseData& d, vd::Stamp st,
   v1::Pose s;
   Mask m;
   s.vehicle_id(vid);
-  // A NaN stays in the sample as well as clearing the bit.
-  m.flt(bit::lat_deg, d.lat_deg);
-  s.lat_deg(d.lat_deg);
-  m.flt(bit::lon_deg, d.lon_deg);
-  s.lon_deg(d.lon_deg);
-  m.flt(bit::alt_msl_m, d.alt_msl_m);
-  s.alt_msl_m(d.alt_msl_m);
-  m.flt(bit::alt_rel_home_m, d.alt_rel_home_m);
-  s.alt_rel_home_m(d.alt_rel_home_m);
-  m.flt(bit::q_w, d.q_w);
-  s.q_w(d.q_w);
-  m.flt(bit::q_x, d.q_x);
-  s.q_x(d.q_x);
-  m.flt(bit::q_y, d.q_y);
-  s.q_y(d.q_y);
-  m.flt(bit::q_z, d.q_z);
-  s.q_z(d.q_z);
-  m.flt(bit::vel_n_mps, d.vel_n_mps);
-  s.vel_n_mps(d.vel_n_mps);
-  m.flt(bit::vel_e_mps, d.vel_e_mps);
-  s.vel_e_mps(d.vel_e_mps);
-  m.flt(bit::vel_d_mps, d.vel_d_mps);
-  s.vel_d_mps(d.vel_d_mps);
-  m.flt(bit::heading_deg, d.heading_deg);
-  s.heading_deg(d.heading_deg);
+  // An unavailable value is NaN in the sample as well as a cleared bit.
+  s.lat_deg(m.flt(bit::lat_deg, d.lat_deg));
+  s.lon_deg(m.flt(bit::lon_deg, d.lon_deg));
+  s.alt_msl_m(m.flt(bit::alt_msl_m, d.alt_msl_m));
+  s.alt_rel_home_m(m.flt(bit::alt_rel_home_m, d.alt_rel_home_m));
+  s.q_w(m.flt(bit::q_w, d.q_w));
+  s.q_x(m.flt(bit::q_x, d.q_x));
+  s.q_y(m.flt(bit::q_y, d.q_y));
+  s.q_z(m.flt(bit::q_z, d.q_z));
+  s.vel_n_mps(m.flt(bit::vel_n_mps, d.vel_n_mps));
+  s.vel_e_mps(m.flt(bit::vel_e_mps, d.vel_e_mps));
+  s.vel_d_mps(m.flt(bit::vel_d_mps, d.vel_d_mps));
+  s.heading_deg(m.flt(bit::heading_deg, d.heading_deg));
   s.header(header(st, seq, m.bits));
   return s;
 }
@@ -220,16 +212,13 @@ v1::Health to_idl(uint32_t vid, const vd::HealthData& d, vd::Stamp st,
   v1::Health s;
   Mask m;
   s.vehicle_id(vid);
-  m.flt(bit::battery_voltage_v, d.battery_voltage_v);
-  s.battery_voltage_v(d.battery_voltage_v);
-  m.flt(bit::battery_current_a, d.battery_current_a);
-  s.battery_current_a(d.battery_current_a);
-  m.flt(bit::battery_remaining_pct, d.battery_remaining_pct);
-  s.battery_remaining_pct(d.battery_remaining_pct);
-  m.flt(bit::battery_time_remaining_s, d.battery_time_remaining_s);
-  s.battery_time_remaining_s(d.battery_time_remaining_s);
-  m.flt(bit::gnss_hdop, d.gnss_hdop);
-  s.gnss_hdop(d.gnss_hdop);
+  s.battery_voltage_v(m.flt(bit::battery_voltage_v, d.battery_voltage_v));
+  s.battery_current_a(m.flt(bit::battery_current_a, d.battery_current_a));
+  s.battery_remaining_pct(
+      m.flt(bit::battery_remaining_pct, d.battery_remaining_pct));
+  s.battery_time_remaining_s(
+      m.flt(bit::battery_time_remaining_s, d.battery_time_remaining_s));
+  s.gnss_hdop(m.flt(bit::gnss_hdop, d.gnss_hdop));
   s.gnss_fix(v1::GnssFix::GNSS_FIX_UNKNOWN);
   if (m.opt(bit::gnss_fix, d.gnss_fix)) s.gnss_fix(conv(*d.gnss_fix));
   if (m.opt(bit::gnss_satellites, d.gnss_satellites)) {
@@ -258,8 +247,12 @@ v1::LinkStatus to_idl(uint32_t vid, const vd::LinkStatusData& d, vd::Stamp st,
   s.state_since_ns(d.state_since_ns);
   s.rx_rate_hz(static_cast<float>(d.stats.rx_rate_hz));
   s.loss_pct(static_cast<float>(d.stats.loss_pct));
-  s.last_rx_age_ms(static_cast<uint32_t>(
-      std::max<int64_t>(0, d.stats.last_rx_age.count())));
+  // Clamped to the field: UINT32_MAX stands for "never received" (the
+  // monitor's milliseconds::max()) and for anything 49.7 days or older.
+  const int64_t age_ms = d.stats.last_rx_age.count();
+  constexpr int64_t kNever = std::numeric_limits<uint32_t>::max();
+  s.last_rx_age_ms(
+      static_cast<uint32_t>(age_ms <= 0 ? 0 : std::min(age_ms, kNever)));
   // Signing is not implemented in this milestone: it is reported as off, and
   // that is a known value, not an unavailable one.
   s.signing(v1::SigningState::SIGNING_OFF);

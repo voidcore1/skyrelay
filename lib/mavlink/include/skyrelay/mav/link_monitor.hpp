@@ -37,6 +37,9 @@ struct LinkTransition {
 struct LinkStats {
   double rx_rate_hz;
   double loss_pct;
+  // Time since the last valid frame; milliseconds::max() if none has arrived
+  // yet. On the wire (link_status.last_rx_age_ms, uint32) both that and any
+  // age of 49.7 days or more become UINT32_MAX.
   std::chrono::milliseconds last_rx_age;
 };
 

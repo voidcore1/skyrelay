@@ -81,7 +81,14 @@ Telemetry only.
 
 - **No security yet.** There is no DDS-Security, no MAVLink signing, and no TLS
   or authentication at the gateway. These arrive in M3.
-- DDS is restricted to loopback unless `--insecure-allow-network` is given.
+- Without `--insecure-allow-network`, DDS sends and advertises only on
+  loopback. Its receive sockets still bind to every interface (Cyclone DDS
+  11.1 has no option to bind them to one), so another host that can reach UDP
+  17910–18039 (domain 42) could inject DDS traffic. Block those ports to other
+  hosts with a host firewall, or keep the machine on a trusted network.
+- `--insecure-allow-network` has to be given to every SkyRelay process on a
+  host (bridge, gateway, `skyrelay-bench-probe`); a loopback participant and a
+  network one do not discover each other.
 - The gateway listens on loopback only, checks `Host` on every request and
   `Origin` on the WebSocket upgrade, and refuses non-loopback listen
   addresses.

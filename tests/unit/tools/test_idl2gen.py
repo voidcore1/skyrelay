@@ -77,6 +77,13 @@ struct Other {
         with self.assertRaisesRegex(idl2gen.IdlError, r"line 3: unknown type"):
             idl2gen.parse("module a {\n@appendable\nstruct S { Nope x; // unit: -\n};\n};")
 
+    def test_struct_without_appendable_is_error(self):
+        with self.assertRaisesRegex(idl2gen.IdlError, r"line 3: struct S must be annotated @appendable"):
+            idl2gen.parse("module a {\n\nstruct S { long x; // unit: -\n};\n};")
+        # @key alone is not enough, and the line is the struct's own.
+        with self.assertRaisesRegex(idl2gen.IdlError, r"line 5: struct T must be annotated @appendable"):
+            idl2gen.parse("module a {\n@appendable\nstruct S { long x; // unit: -\n};\nstruct T { long y; // unit: -\n};\n};")
+
     def test_missing_unit_is_error(self):
         with self.assertRaisesRegex(idl2gen.IdlError, r"line 3: .*unit"):
             idl2gen.parse("module a {\n@appendable\nstruct S { long x;\n};\n};")

@@ -64,12 +64,7 @@ int run(const std::string& config_path, std::optional<uint32_t> only,
   dc.domain_id = cfg.dds.domain_id;
   dc.partition = cfg.dds.partition;
   dc.allow_network = allow_network;
-  if (allow_network) {
-    spdlog::warn("INSECURE PREVIEW: DDS open on every network interface, "
-                 "without security");
-  } else {
-    spdlog::warn("INSECURE PREVIEW: DDS restricted to loopback");
-  }
+  spdlog::warn("INSECURE PREVIEW: {}", sdds::exposure_summary(dc));
 
   // Registered before any thread starts; a signal that arrives before run()
   // below is kept until then.
@@ -134,8 +129,9 @@ int main(int argc, char** argv) {
   app.add_option("--vehicle", only,
                  "Run only the vehicle with this id (one process per vehicle)");
   app.add_flag("--insecure-allow-network", allow_network,
-               "Let DDS use non-loopback interfaces. There is no DDS "
-               "security in this preview.");
+               "Let DDS use non-loopback interfaces. Every SkyRelay "
+               "process on this host (bridge, gateway, probe) must then set "
+               "it too. There is no DDS security in this preview.");
   CLI11_PARSE(app, argc, argv);
 
   try {
