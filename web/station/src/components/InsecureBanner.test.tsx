@@ -5,7 +5,7 @@ import type { HelloMsg } from '../net/protocol'
 
 afterEach(cleanup)
 
-const hello: HelloMsg = { type: 'hello', version: '0.1.0-preview', contract: '1.0.0-preview.1', insecure: true, server_time_ns: 1 }
+const hello: HelloMsg = { type: 'hello', version: '0.1.0-preview', contract: '1.0.0-preview.2', insecure: true, server_time_ns: 1 }
 
 test('shows INSECURE PREVIEW while the gateway says it is insecure, with no way to dismiss it', () => {
   render(<InsecureBanner hello={hello} />)

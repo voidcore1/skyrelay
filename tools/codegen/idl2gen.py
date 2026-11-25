@@ -45,13 +45,19 @@ class IdlError(Exception):
 @dataclass
 class Field:
     name: str
-    type: str          # primitive name, "string", enum name or struct name
-    kind: str          # "prim", "string", "enum", "struct"
+    type: str          # primitive name, "string", "sequence", enum name or struct name
+    kind: str          # "prim", "string", "enum", "struct", "sequence"
     key: bool
     unit: str
     line: int
     bound: int = 0
     bit: int = -1      # valid-mask bit, -1 when the field has none
+    elem: str = ""     # element struct of a sequence
+    core: bool = False  # `, core` marker: every supported autopilot supplies it
+
+    @property
+    def is_id(self):
+        return self.unit == "id"
 
 
 @dataclass
@@ -88,12 +94,13 @@ TOKEN = re.compile(r"(//[^\n]*)|(/\*.*?\*/)|(@?[A-Za-z_][A-Za-z0-9_]*|\d+|\S)", 
 
 
 def tokenize(text):
-    """Return (tokens, units). tokens are (text, line); units maps line -> unit."""
+    """Return (tokens, units). tokens are (text, line); units maps line -> the
+    text after `unit:` (a unit, optionally followed by `, core`)."""
     toks, units = [], {}
     for m in TOKEN.finditer(text):
         line = text.count("\n", 0, m.start()) + 1
         if m.group(1):
-            u = re.match(r"//\s*unit:\s*(\S+)\s*$", m.group(1))
+            u = re.match(r"//\s*unit:\s*(\S.*?)\s*$", m.group(1))
             if u:
                 units[line] = u.group(1)
         elif m.group(3):
@@ -200,7 +207,7 @@ class Parser:
         for a in self.annotations():
             key = key or a == "@key"
         tname, line = self.next()
-        bound = 0
+        bound, elem = 0, ""
         if tname == "string":
             self.expect("<")
             n, nline = self.next()
@@ -215,20 +222,60 @@ class Parser:
             kind = "enum"
         elif tname in self.struct_names:
             kind = "struct"
-        elif tname in ("sequence", "map", "union", "bitset"):
+        elif tname == "sequence":
+            kind, elem, bound = self.sequence()
+        elif tname in ("map", "union", "bitset"):
             self.err(line, f"{tname} is not supported")
         else:
             self.err(line, f"unknown type '{tname}'")
         name_tok, name_line = self.peek()
         name = self.ident()
+        # kCore and kAll are the generated mask constants in valid::<Struct>.
+        if name in ("kCore", "kAll"):
+            self.err(name_line, f"field name '{name}' is reserved for the generated valid-bit masks")
         self.expect(";")
         # The unit comment sits on the line of the terminating ';'.
-        unit = self.units.get(self.toks[self.i - 1][1])
-        if unit is None and kind != "struct":
-            unit = self.units.get(name_line)
-        if unit is None and kind != "struct":
+        raw = self.units.get(self.toks[self.i - 1][1])
+        if raw is None and kind not in ("struct", "sequence"):
+            raw = self.units.get(name_line)
+        if raw is None and kind not in ("struct", "sequence"):
             self.err(name_line, f"field '{name}' is missing a trailing '// unit: <unit>' comment")
-        return Field(name, tname, kind, key, unit or "-", name_line, bound)
+        unit, core = self.unit_comment(raw, name_line)
+        if unit == "id" and tname != "uint64":
+            self.err(name_line, f"unit 'id' needs uint64 (field '{name}')")
+        return Field(name, "sequence" if kind == "sequence" else tname, kind, key, unit, name_line,
+                     bound, elem=elem, core=core)
+
+    def sequence(self):
+        """sequence<Struct, N>; the opening 'sequence' is already consumed."""
+        self.expect("<")
+        elem, eline = self.next()
+        if elem not in self.struct_names:
+            self.err(eline, "sequence element must be a struct")
+        t, line = self.next()
+        if t == ">":
+            self.err(line, "sequence must be bounded")
+        if t != ",":
+            self.err(line, f"expected ',' or '>', found '{t}'")
+        n, nline = self.next()
+        if not n.isdigit() or int(n) == 0:
+            self.err(nline, "sequence bound must be a positive number")
+        self.expect(">")
+        return "sequence", elem, int(n)
+
+    def unit_comment(self, raw, line):
+        """Split `<unit>[, option...]` into (unit, core)."""
+        if raw is None:
+            return "-", False
+        parts = [p.strip() for p in raw.split(",")]
+        unit, core = parts[0], False
+        if not unit or " " in unit:
+            self.err(line, f"bad unit '{parts[0]}'")
+        for opt in parts[1:]:
+            if opt != "core":
+                self.err(line, f"unknown unit option '{opt}'")
+            core = True
+        return unit, core
 
     def assign_bits(self, s):
         seen_header, bit = False, 0
@@ -240,6 +287,9 @@ class Parser:
             if seen_header and not f.key:
                 f.bit = bit
                 bit += 1
+        for f in s.fields:
+            if f.core and f.bit < 0:
+                self.err(f.line, f"field '{f.name}' is marked core but has no valid bit")
         if bit > 64:
             self.err(s.fields[0].line, f"struct {s.name} has {bit} data fields, valid_mask holds 64")
 
@@ -260,14 +310,121 @@ def ns_cpp(m):
     return "::".join(m.namespace)
 
 
+JSON_PRELUDE = r'''
+class JsonError : public std::invalid_argument {
+  using std::invalid_argument::invalid_argument;
+};
+
+namespace json_detail {
+
+inline std::string join(std::string_view path, std::string_view name) {
+  return path.empty() ? std::string(name) : std::string(path) + "." + std::string(name);
+}
+
+inline std::string index(std::string_view path, std::size_t i) {
+  return std::string(path) + "[" + std::to_string(i) + "]";
+}
+
+[[noreturn]] inline void fail(std::string_view path, std::string_view problem) {
+  if (path.empty()) throw JsonError(std::string(problem));
+  throw JsonError(std::string(path) + ": " + std::string(problem));
+}
+
+template <class T>
+T get_integer(const nlohmann::json& j, std::string_view path) {
+  if (!j.is_number_integer()) fail(path, "expected an integer");
+  if (j.is_number_unsigned()) {
+    const auto u = j.get<std::uint64_t>();
+    if (u > static_cast<std::uint64_t>(std::numeric_limits<T>::max())) fail(path, "out of range");
+    return static_cast<T>(u);
+  }
+  const auto i = j.get<std::int64_t>();
+  if constexpr (std::is_unsigned_v<T>) {
+    if (i < 0) fail(path, "out of range");
+  } else {
+    if (i < static_cast<std::int64_t>(std::numeric_limits<T>::min()) ||
+        i > static_cast<std::int64_t>(std::numeric_limits<T>::max()))
+      fail(path, "out of range");
+  }
+  return static_cast<T>(i);
+}
+
+template <class T>
+T get_float(const nlohmann::json& j, std::string_view path) {
+  if (j.is_null()) return std::numeric_limits<T>::quiet_NaN();
+  if (!j.is_number()) fail(path, "expected a number or null");
+  const double d = j.get<double>();
+  if (std::isfinite(d) && std::fabs(d) > static_cast<double>(std::numeric_limits<T>::max()))
+    fail(path, "out of range");
+  return static_cast<T>(d);
+}
+
+inline bool get_bool(const nlohmann::json& j, std::string_view path) {
+  if (!j.is_boolean()) fail(path, "expected a boolean");
+  return j.get<bool>();
+}
+
+inline std::string get_string(const nlohmann::json& j, std::string_view path, std::size_t max_bytes) {
+  if (!j.is_string()) fail(path, "expected a string");
+  auto s = j.get<std::string>();
+  if (s.size() > max_bytes) fail(path, "longer than " + std::to_string(max_bytes) + " bytes");
+  return s;
+}
+
+// A 64-bit id travels as a decimal string of 1 to 20 digits.
+inline std::uint64_t get_id(const nlohmann::json& j, std::string_view path) {
+  if (!j.is_string()) fail(path, "expected a decimal string");
+  const auto& s = j.get_ref<const std::string&>();
+  if (s.empty() || s.size() > 20) fail(path, "expected a decimal string");
+  std::uint64_t v = 0;
+  for (const char c : s) {
+    if (c < '0' || c > '9') fail(path, "expected a decimal string");
+    const auto d = static_cast<std::uint64_t>(c - '0');
+    if (v > (std::numeric_limits<std::uint64_t>::max() - d) / 10) fail(path, "out of range");
+    v = v * 10 + d;
+  }
+  return v;
+}
+
+inline const nlohmann::json& require_object(const nlohmann::json& j, std::string_view path,
+                                            std::initializer_list<std::string_view> keys) {
+  if (!j.is_object()) fail(path, "expected an object");
+  for (auto it = j.begin(); it != j.end(); ++it) {
+    bool known = false;
+    for (const auto k : keys) known = known || k == it.key();
+    if (!known) fail(join(path, it.key()), "unexpected key");
+  }
+  return j;
+}
+
+inline const nlohmann::json& member(const nlohmann::json& j, std::string_view path,
+                                    std::string_view key) {
+  const auto it = j.find(key);
+  if (it == j.end()) fail(join(path, key), "missing");
+  return *it;
+}
+
+}  // namespace json_detail
+'''
+
+
 def gen_json_hpp(m):
     ns = ns_cpp(m)
     o = [f"// {BANNER}", "#pragma once", "",
-         "#include <cmath>", "", "#include <nlohmann/json.hpp>", "",
+         "#include <cmath>", "#include <cstddef>", "#include <cstdint>",
+         "#include <initializer_list>", "#include <limits>", "#include <stdexcept>",
+         "#include <string>", "#include <string_view>", "#include <type_traits>",
+         "#include <vector>", "",
+         "#include <nlohmann/json.hpp>", "",
          "#include <skyrelay/dds/idl.hpp>", "",
-         "// Enums become their literal name, NaN floats become null. An enum value",
-         "// outside the known literals (a newer peer) also becomes null.", "",
-         f"namespace {ns} {{", ""]
+         "// to_json_value: enums become their literal name, NaN floats become null,",
+         "// and an enum value outside the known literals (a newer peer) also becomes",
+         "// null. 64-bit ids (`unit: id`) become decimal strings.",
+         "//",
+         "// from_json_value is strict: an object with exactly the struct's fields,",
+         "// every value of the right type and in range. Errors are JsonError with",
+         '// "<path>: <problem>", e.g. "params.alt_rel_home_m: expected a number or null".',
+         "", f"namespace {ns} {{", JSON_PRELUDE]
     for e in m.enums:
         o.append(f"inline nlohmann::json to_json_value({e.name} v) {{")
         o.append("  switch (v) {")
@@ -277,12 +434,27 @@ def gen_json_hpp(m):
         o.append("  return nullptr;")
         o.append("}")
         o.append("")
+        o.append(f"inline void from_json_value(const nlohmann::json& j, {e.name}& out,")
+        o.append("                            std::string_view path = {}) {")
+        o.append('  if (!j.is_string()) json_detail::fail(path, "expected a string");')
+        o.append("  const auto& s = j.get_ref<const std::string&>();")
+        for lit in e.literals:
+            o.append(f'  if (s == "{lit}") {{ out = {e.name}::{lit}; return; }}')
+        o.append('''  json_detail::fail(path, "unknown literal '" + s + "'");''')
+        o.append("}")
+        o.append("")
     for s in m.structs:
         o.append(f"inline nlohmann::json to_json_value(const {s.name}& v) {{")
         o.append("  nlohmann::json j = nlohmann::json::object();")
         for f in s.fields:
             acc = f"v.{f.name}()"
-            if f.kind == "prim" and PRIMITIVES[f.type][2]:
+            if f.kind == "sequence":
+                o.append(f'  j["{f.name}"] = nlohmann::json::array();')
+                o.append(f"  for (const auto& e : {acc}) j[\"{f.name}\"].push_back(to_json_value(e));")
+                continue
+            if f.is_id:
+                expr = f"std::to_string({acc})"
+            elif f.kind == "prim" and PRIMITIVES[f.type][2]:
                 expr = f"std::isnan({acc}) ? nlohmann::json(nullptr) : nlohmann::json({acc})"
             elif f.kind in ("enum", "struct"):
                 expr = f"to_json_value({acc})"
@@ -292,14 +464,60 @@ def gen_json_hpp(m):
         o.append("  return j;")
         o.append("}")
         o.append("")
+        keys = ", ".join(f'"{f.name}"' for f in s.fields)
+        o.append(f"inline void from_json_value(const nlohmann::json& j, {s.name}& out,")
+        o.append("                            std::string_view path = {}) {")
+        o.append(f"  json_detail::require_object(j, path, {{{keys}}});")
+        for f in s.fields:
+            o.append("  {")
+            o.append(f'    const auto& v = json_detail::member(j, path, "{f.name}");')
+            o.append(f'    const auto p = json_detail::join(path, "{f.name}");')
+            o.extend("    " + line for line in from_json_field(f))
+            o.append("  }")
+        o.append("}")
+        o.append("")
     o.append(f"}}  // namespace {ns}")
     return "\n".join(o) + "\n"
+
+
+def from_json_field(f):
+    n = f.name
+    if f.kind == "sequence":
+        return ["if (!v.is_array()) json_detail::fail(p, \"expected an array\");",
+                f"if (v.size() > {f.bound}) json_detail::fail(p, \"more than {f.bound} elements\");",
+                f"std::vector<{f.elem}> items(v.size());",
+                "for (std::size_t i = 0; i < v.size(); ++i)",
+                "  from_json_value(v[i], items[i], json_detail::index(p, i));",
+                f"out.{n}(std::move(items));"]
+    if f.kind == "struct":
+        return [f"from_json_value(v, out.{n}(), p);"]
+    if f.kind == "enum":
+        return [f"{f.type} e{{}};", "from_json_value(v, e, p);", f"out.{n}(e);"]
+    if f.kind == "string":
+        return [f"out.{n}(json_detail::get_string(v, p, {f.bound}));"]
+    cpp = PRIMITIVES[f.type][0]
+    if f.is_id:
+        return [f"out.{n}(json_detail::get_id(v, p));"]
+    if f.type == "boolean":
+        return [f"out.{n}(json_detail::get_bool(v, p));"]
+    if PRIMITIVES[f.type][2]:
+        return [f"out.{n}(json_detail::get_float<{cpp}>(v, p));"]
+    return [f"out.{n}(json_detail::get_integer<{cpp}>(v, p));"]
+
+
+def mask_expr(bits):
+    if not bits:
+        return "0"
+    terms = [f"(1ull << {b})" for b in bits]
+    lines = [" | ".join(terms[i:i + 4]) for i in range(0, len(terms), 4)]
+    return (" |\n      ").join(lines)
 
 
 def gen_valid_hpp(m):
     ns = ns_cpp(m)
     o = [f"// {BANNER}", "#pragma once", "", "#include <cstdint>", "",
-         "// valid_mask bit i is the i-th data field after `header`.",
+         "// valid_mask bit i is the i-th data field after `header`. kCore is the",
+         "// bits of the fields marked `core` in the IDL, kAll is every data bit.",
          f"namespace {ns}::valid {{", ""]
     for s in m.structs:
         if not s.data_fields:
@@ -307,6 +525,8 @@ def gen_valid_hpp(m):
         o.append(f"struct {s.name} {{")
         for f in s.data_fields:
             o.append(f"  static constexpr uint64_t {f.name} = 1ull << {f.bit};")
+        o.append(f"  static constexpr uint64_t kCore = {mask_expr([f.bit for f in s.data_fields if f.core])};")
+        o.append(f"  static constexpr uint64_t kAll = {mask_expr([f.bit for f in s.data_fields])};")
         o.append("};")
         o.append("")
     o.append(f"}}  // namespace {ns}::valid")
@@ -317,9 +537,13 @@ def gen_valid_hpp(m):
 
 def ts_type(f):
     if f.kind == "prim":
-        return PRIMITIVES[f.type][1]
+        return "string" if f.is_id else PRIMITIVES[f.type][1]
     if f.kind == "string":
         return "string"
+    if f.kind == "sequence":
+        return f"{f.elem}[]"
+    if f.kind == "enum":
+        return f"{f.type} | null"
     return f.type
 
 
@@ -353,20 +577,25 @@ def gen_ts(m):
 def cpp_type_label(f):
     if f.kind == "string":
         return f"string<{f.bound}>"
+    if f.kind == "sequence":
+        return f"sequence<{f.elem}, {f.bound}>"
     return f.type
 
 
 def gen_md(m):
     o = [f"<!-- {BANNER} -->", "", "# Contract v1 fields", "",
-         "Bit is the position in `header.valid_mask`; `-` means the field has no bit.", ""]
+         "Bit is the position in `header.valid_mask`; `-` means the field has no bit.",
+         "Class is `core` for fields every supported autopilot has to supply and",
+         "`extended` for fields that are valid when the vehicle has them.", ""]
     for s in m.structs:
         o.append(f"## {s.name}")
         o.append("")
-        o.append("| field | type | bit | unit |")
-        o.append("|---|---|---|---|")
+        o.append("| field | type | bit | unit | class |")
+        o.append("|---|---|---|---|---|")
         for f in s.fields:
             bit = str(f.bit) if f.bit >= 0 else "-"
-            o.append(f"| `{f.name}` | `{cpp_type_label(f)}` | {bit} | {f.unit} |")
+            cls = "-" if f.bit < 0 else ("core" if f.core else "extended")
+            o.append(f"| `{f.name}` | `{cpp_type_label(f)}` | {bit} | {f.unit} | {cls} |")
         o.append("")
     for e in m.enums:
         o.append(f"## {e.name}")

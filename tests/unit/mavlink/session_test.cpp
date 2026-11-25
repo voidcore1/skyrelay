@@ -509,3 +509,20 @@ TEST(Session, RejectsChannelOutOfRange) {
                               transport, sink),
                std::invalid_argument);
 }
+
+TEST(Session, OnBytesReportsLockedVehicle) {
+  SessionConfig cfg = default_config();
+  cfg.expected_sysid = 1;
+  Harness h(cfg);
+  const auto heartbeat = [](uint8_t sysid) {
+    mavlink_status_t st{};
+    mavlink_message_t hb{};
+    mavlink_msg_heartbeat_pack_status(sysid, MAV_COMP_ID_AUTOPILOT1, &st, &hb,
+                                      MAV_TYPE_QUADROTOR, MAV_AUTOPILOT_PX4, 0,
+                                      0, MAV_STATE_ACTIVE);
+    return to_bytes(hb);
+  };
+  EXPECT_FALSE(h.session.on_bytes(heartbeat(9)));
+  EXPECT_TRUE(h.session.on_bytes(heartbeat(1)));
+  EXPECT_FALSE(h.session.on_bytes(heartbeat(9)));
+}

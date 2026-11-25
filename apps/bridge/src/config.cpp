@@ -151,6 +151,8 @@ std::vector<VehicleConfig> read_vehicles(const YAML::Node& n,
   // A listen link owns its local port; an out link is unique per peer.
   std::map<uint16_t, size_t> listen_ports;
   std::map<std::pair<std::string, uint16_t>, size_t> peers;
+  std::map<std::pair<std::string, uint16_t>, size_t> tcp_peers;
+  std::map<std::string, size_t> serial_devices;
   for (size_t i = 0; i < n.size(); ++i) {
     const YAML::Node v = n[i];
     const std::string path = "vehicles[" + std::to_string(i) + "]";
@@ -183,20 +185,39 @@ std::vector<VehicleConfig> read_vehicles(const YAML::Node& n,
     } catch (const std::invalid_argument& e) {
       fail(path + ".link", e.what());
     }
-    size_t owner = i;
-    if (vc.link.scheme == mav::LinkScheme::UdpListen) {
-      owner = listen_ports.emplace(vc.link.port, i).first->second;
-    } else {
-      owner = peers.emplace(std::pair{vc.link.host, vc.link.port}, i)
-                  .first->second;
-    }
-    if (owner != i) {
-      const std::string what =
-          vc.link.scheme == mav::LinkScheme::UdpListen
-              ? "local port " + std::to_string(vc.link.port)
-              : "remote " + vc.link.host + ":" + std::to_string(vc.link.port);
-      fail(path + ".link", what + " is already used by vehicles[" +
-                               std::to_string(owner) + "]");
+    switch (vc.link.scheme) {
+      case mav::LinkScheme::UdpListen:
+        if (const auto [it, fresh] = listen_ports.emplace(vc.link.port, i);
+            !fresh) {
+          fail(path + ".link",
+               "local port " + std::to_string(vc.link.port) +
+                   " is already used by vehicles[" +
+                   std::to_string(it->second) + "]");
+        }
+        break;
+      case mav::LinkScheme::UdpOut:
+      case mav::LinkScheme::TcpClient: {
+        auto& seen =
+            vc.link.scheme == mav::LinkScheme::UdpOut ? peers : tcp_peers;
+        if (const auto [it, fresh] =
+                seen.emplace(std::pair{vc.link.host, vc.link.port}, i);
+            !fresh) {
+          fail(path + ".link",
+               "remote " + vc.link.host + ":" + std::to_string(vc.link.port) +
+                   " is already used by vehicles[" +
+                   std::to_string(it->second) + "]");
+        }
+        break;
+      }
+      case mav::LinkScheme::Serial:
+        if (const auto [it, fresh] = serial_devices.emplace(vc.link.device, i);
+            !fresh) {
+          fail(path + ".link",
+               "serial device " + vc.link.device +
+                   " already used by vehicles[" + std::to_string(it->second) +
+                   "]");
+        }
+        break;
     }
     out.push_back(std::move(vc));
   }

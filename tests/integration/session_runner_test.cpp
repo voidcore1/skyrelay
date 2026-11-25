@@ -203,3 +203,49 @@ TEST(SessionRunner, KeepsServingWhenTheSinkThrows) {
   EXPECT_GE(sink.links, 3);
   runner.stop();
 }
+
+// The same vehicle over TCP: the runner connects out, the simulated vehicle
+// is the server, and there is no local UDP port to report.
+TEST(SessionRunner, ServesAVehicleOverTcp) {
+  asio::io_context io;
+  asio::ip::tcp::acceptor acceptor(
+      io, asio::ip::tcp::endpoint(asio::ip::make_address("127.0.0.1"), 0));
+  CountingSink sink;
+  bridge::VehicleConfig v = loopback_vehicle();
+  v.link = mav::LinkUri{mav::LinkScheme::TcpClient, "127.0.0.1",
+                        acceptor.local_endpoint().port()};
+  bridge::SessionRunner runner(v, session_config(), 0, sink);
+  EXPECT_EQ(runner.local_port(), 0);
+  runner.start();
+
+  asio::ip::tcp::socket sock(io);
+  acceptor.accept(sock);
+  sock.non_blocking(true);
+  test::SimVehicle sim(1, Steady::now());
+  test::FrameParser parser;
+  bool gcs_heartbeat = false;
+
+  const auto deadline = Steady::now() + 5s;
+  while (Steady::now() < deadline && !(gcs_heartbeat && sink.connected)) {
+    const auto out = sim.step(Steady::now());
+    boost::system::error_code ec;
+    if (!out.empty()) asio::write(sock, asio::buffer(out), ec);
+    std::array<uint8_t, 2048> buf{};
+    for (;;) {
+      const size_t n = sock.read_some(asio::buffer(buf), ec);
+      if (ec) break;
+      const std::span<const uint8_t> got(buf.data(), n);
+      for (const auto& m : parser.push(got)) {
+        if (m.msgid == MAVLINK_MSG_ID_HEARTBEAT && m.sysid == 245) {
+          gcs_heartbeat = true;
+        }
+      }
+      const auto reply = sim.receive(got);
+      if (!reply.empty()) asio::write(sock, asio::buffer(reply), ec);
+    }
+    std::this_thread::sleep_for(5ms);
+  }
+  EXPECT_TRUE(gcs_heartbeat);
+  EXPECT_TRUE(sink.connected);
+  runner.stop();
+}

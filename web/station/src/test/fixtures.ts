@@ -35,7 +35,7 @@ export const info: VehicleInfo = {
   mav_sysid: 1,
   mav_compid: 1,
   capabilities: 0,
-  contract_version: '1.0.0-preview.1',
+  contract_version: '1.0.0-preview.2',
 }
 
 export const vehicleState: VehicleState = {

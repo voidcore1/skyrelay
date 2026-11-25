@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <vector>
 
+#include "skyrelay/mav/command_transaction.hpp"
 #include "skyrelay/mav/mavlink.hpp"
 
 namespace skyrelay::mav {
@@ -22,6 +23,10 @@ class Packer {
                                  uint16_t command,
                                  const std::array<float, 7>& params,
                                  uint8_t confirmation);
+
+  // COMMAND_LONG with the request's confirmation, or COMMAND_INT with current
+  // and autocontinue 0, as the spec's encoding says.
+  mavlink_message_t command(const SendRequest& req);
 
   // Wire encoding of a message.
   static std::vector<uint8_t> serialize(const mavlink_message_t& msg);

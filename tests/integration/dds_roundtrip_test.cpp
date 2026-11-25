@@ -6,6 +6,7 @@
 #include <chrono>
 #include <csignal>
 #include <cstdlib>
+#include <optional>
 #include <string>
 #include <thread>
 
@@ -147,4 +148,65 @@ TEST(DdsRoundTrip, CrossProcessDiscoveryOnLoopback) {
   ASSERT_TRUE(ok);
   EXPECT_EQ(got.vehicle_id(), 9u);
   EXPECT_DOUBLE_EQ(got.lat_deg(), 12.5);
+}
+
+TEST(DdsRoundTrip, CommandRequestOnCommandPartition) {
+  DomainConfig data;
+  auto make_reader = [](const DomainConfig& c, const std::string& partition) {
+    struct R {
+      ::dds::domain::DomainParticipant dp;
+      ::dds::sub::Subscriber sub;
+      ::dds::topic::Topic<v1::CommandRequest> topic;
+      ::dds::sub::DataReader<v1::CommandRequest> reader;
+    };
+    auto dp = open_participant(c);
+    auto sub = make_subscriber(dp, c, partition);
+    ::dds::topic::Topic<v1::CommandRequest> topic(dp, std::string(kTopicCommandRequest),
+                                                  topic_qos(Profile::Command));
+    ::dds::sub::DataReader<v1::CommandRequest> reader(sub, topic, reader_qos(Profile::Command));
+    return R{dp, sub, topic, reader};
+  };
+  auto on_cmd = make_reader(data, command_partition(data.partition));
+  auto on_data = make_reader(data, data.partition);
+
+  auto dp = open_participant(data);
+  auto pub = make_publisher(dp, data, command_partition(data.partition));
+  ::dds::topic::Topic<v1::CommandRequest> topic(dp, std::string(kTopicCommandRequest),
+                                                topic_qos(Profile::Command));
+  ::dds::pub::DataWriter<v1::CommandRequest> writer(pub, topic, writer_qos(Profile::Command));
+
+  v1::CommandRequest req;
+  req.vehicle_id(1);
+  req.issuer_id(2);
+  req.command_id(18446744073709551557ull);
+  req.kind(v1::CommandKind::COMMAND_KIND_MISSION_UPLOAD);
+  req.waypoints(std::vector<v1::Waypoint>(3));
+
+  // Wait for the writer to match the command-partition reader, then write once.
+  const auto match_end = std::chrono::steady_clock::now() + 5s;
+  while (writer.publication_matched_status().current_count() < 1 &&
+         std::chrono::steady_clock::now() < match_end)
+    std::this_thread::sleep_for(10ms);
+  ASSERT_GE(writer.publication_matched_status().current_count(), 1);
+  writer.write(req);
+
+  std::optional<v1::CommandRequest> got;
+  const auto end = std::chrono::steady_clock::now() + 3s;
+  while (!got && std::chrono::steady_clock::now() < end) {
+    for (const auto& s : on_cmd.reader.take())
+      if (s.info().valid()) got = s.data();
+    std::this_thread::sleep_for(10ms);
+  }
+  ASSERT_TRUE(got.has_value());
+  EXPECT_EQ(got->waypoints().size(), 3u);
+  EXPECT_EQ(got->command_id(), 18446744073709551557ull);
+
+  // The data partition reader must see nothing within a second.
+  const auto quiet_end = std::chrono::steady_clock::now() + 1s;
+  bool leaked = false;
+  while (std::chrono::steady_clock::now() < quiet_end) {
+    for (const auto& s : on_data.reader.take()) leaked = leaked || s.info().valid();
+    std::this_thread::sleep_for(10ms);
+  }
+  EXPECT_FALSE(leaked);
 }

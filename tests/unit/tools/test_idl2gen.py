@@ -89,6 +89,108 @@ struct Other {
             idl2gen.parse("module a {\n@appendable\nstruct S { long x;\n};\n};")
 
 
+SEQ_IDL = """
+module a {
+@appendable
+struct Header { uint64 seq; // unit: -
+};
+@appendable
+enum Kind { KIND_A, KIND_B };
+@appendable
+struct W {
+  double lat_deg;          // unit: deg
+};
+@appendable
+struct Plan {
+  @key uint32 vehicle_id;  // unit: -
+  Header header;
+  sequence<W, 500> waypoints;   // unit: -
+  Kind mode;                    // unit: -
+  uint64 command_id;            // unit: id
+  double a;                     // unit: deg, core
+  double b;                     // unit: deg
+};
+};
+"""
+
+
+def seq_idl(member_line):
+    return SEQ_IDL.replace("  sequence<W, 500> waypoints;   // unit: -\n", member_line + "\n")
+
+
+class Sequences(unittest.TestCase):
+    def test_bounded_sequence_of_struct(self):
+        f = idl2gen.parse(SEQ_IDL).struct("Plan").fields[2]
+        self.assertEqual((f.kind, f.elem, f.bound), ("sequence", "W", 500))
+        out = idl2gen.generate(idl2gen.parse(SEQ_IDL))
+        self.assertIn("waypoints: W[];", out[idl2gen.TS_PATH])
+        self.assertIn("`sequence<W, 500>`", out[idl2gen.MD_PATH])
+
+    def test_unbounded_sequence_rejected(self):
+        with self.assertRaisesRegex(idl2gen.IdlError, r"line \d+: sequence must be bounded"):
+            idl2gen.parse(seq_idl("  sequence<W> waypoints;   // unit: -"))
+
+    def test_sequence_of_primitive_rejected(self):
+        with self.assertRaisesRegex(idl2gen.IdlError, r"line \d+: sequence element must be a struct"):
+            idl2gen.parse(seq_idl("  sequence<long, 4> waypoints;   // unit: -"))
+
+    def test_json_converters_for_sequences(self):
+        out = idl2gen.generate(idl2gen.parse(SEQ_IDL))[idl2gen.JSON_HPP]
+        self.assertIn("more than 500 elements", out)
+        self.assertIn("unknown literal", out)
+        self.assertIn("class JsonError : public std::invalid_argument", out)
+
+
+class Units(unittest.TestCase):
+    def test_reserved_field_names_rejected(self):
+        for name in ("kCore", "kAll"):
+            with self.assertRaisesRegex(idl2gen.IdlError, rf"line \d+: field name '{name}' is reserved"):
+                idl2gen.parse(seq_idl(f"  double {name};   // unit: deg"))
+
+    def test_float_converter_checks_range(self):
+        out = idl2gen.generate(idl2gen.parse(SEQ_IDL))[idl2gen.JSON_HPP]
+        self.assertIn("std::isfinite(d) && std::fabs(d) > static_cast<double>(std::numeric_limits<T>::max())", out)
+
+    def test_id_unit_only_on_uint64(self):
+        with self.assertRaisesRegex(idl2gen.IdlError, r"line \d+: unit 'id' needs uint64"):
+            idl2gen.parse(SEQ_IDL.replace("double b;                     // unit: deg",
+                                          "uint32 b;                     // unit: id"))
+
+    def test_id_is_ts_string(self):
+        out = idl2gen.generate(idl2gen.parse(SEQ_IDL))
+        self.assertIn("command_id: string;", out[idl2gen.TS_PATH])
+        self.assertIn("std::to_string", out[idl2gen.JSON_HPP])
+
+    def test_core_marker(self):
+        m = idl2gen.parse(SEQ_IDL)
+        s = m.struct("Plan")
+        self.assertTrue(next(f for f in s.fields if f.name == "a").core)
+        self.assertFalse(next(f for f in s.fields if f.name == "b").core)
+        self.assertEqual(next(f for f in s.fields if f.name == "a").unit, "deg")
+        out = " ".join(idl2gen.generate(m)[idl2gen.VALID_HPP].split())
+        self.assertIn("kCore = (1ull << 3);", out)
+        self.assertIn("kAll = (1ull << 0) | (1ull << 1) | (1ull << 2) | (1ull << 3) | (1ull << 4);", out)
+
+    def test_unknown_unit_option_rejected(self):
+        with self.assertRaisesRegex(idl2gen.IdlError, r"line \d+: unknown unit option 'cor'"):
+            idl2gen.parse(SEQ_IDL.replace("unit: deg, core", "unit: deg, cor"))
+
+    def test_core_needs_a_valid_bit(self):
+        with self.assertRaisesRegex(idl2gen.IdlError, r"line \d+: .*core.*no valid bit"):
+            idl2gen.parse(SEQ_IDL.replace("uint32 vehicle_id;  // unit: -", "uint32 vehicle_id;  // unit: -, core"))
+
+    def test_ts_enum_fields_nullable(self):
+        out = idl2gen.generate(idl2gen.parse(SEQ_IDL))
+        self.assertIn("mode: Kind | null;", out[idl2gen.TS_PATH])
+
+    def test_md_class_column(self):
+        out = idl2gen.generate(idl2gen.parse(SAMPLE_IDL.replace("// unit: deg", "// unit: deg, core")))[idl2gen.MD_PATH]
+        self.assertIn("| field | type | bit | unit | class |", out)
+        self.assertIn("| `lat_deg` | `double` | 0 | deg | core |", out)
+        self.assertIn("| `kind` | `Kind` | 1 | - | extended |", out)
+        self.assertIn("| `vehicle_id` | `uint32` | - | - | - |", out)
+
+
 class Generate(unittest.TestCase):
     def test_outputs_have_header_and_are_deterministic(self):
         idl = (ROOT / "idl/skyrelay/v1/types.idl").read_text()

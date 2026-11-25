@@ -57,17 +57,29 @@ std::string exposure_summary(const DomainConfig& c) {
 }
 
 ::dds::pub::Publisher make_publisher(::dds::domain::DomainParticipant& dp,
-                                     const DomainConfig& c) {
+                                     const DomainConfig&,
+                                     std::string_view partition) {
   ::dds::pub::qos::PublisherQos q;
-  q << ::dds::core::policy::Partition(c.partition);
+  q << ::dds::core::policy::Partition(std::string(partition));
   return ::dds::pub::Publisher(dp, q);
 }
 
 ::dds::sub::Subscriber make_subscriber(::dds::domain::DomainParticipant& dp,
-                                       const DomainConfig& c) {
+                                       const DomainConfig&,
+                                       std::string_view partition) {
   ::dds::sub::qos::SubscriberQos q;
-  q << ::dds::core::policy::Partition(c.partition);
+  q << ::dds::core::policy::Partition(std::string(partition));
   return ::dds::sub::Subscriber(dp, q);
+}
+
+::dds::pub::Publisher make_publisher(::dds::domain::DomainParticipant& dp,
+                                     const DomainConfig& c) {
+  return make_publisher(dp, c, c.partition);
+}
+
+::dds::sub::Subscriber make_subscriber(::dds::domain::DomainParticipant& dp,
+                                       const DomainConfig& c) {
+  return make_subscriber(dp, c, c.partition);
 }
 
 }  // namespace skyrelay::dds

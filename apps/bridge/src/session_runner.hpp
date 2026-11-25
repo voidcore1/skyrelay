@@ -13,23 +13,24 @@
 
 #include "config.hpp"
 #include "skyrelay/common/clock.hpp"
-#include "skyrelay/mav/udp_link.hpp"
+#include "skyrelay/mav/link.hpp"
 #include "skyrelay/vehicle/session.hpp"
 #include "skyrelay/vehicle/telemetry_sink.hpp"
 
 namespace skyrelay::bridge {
 
 // Runs one VehicleSession on its own thread and io_context, with the vehicle's
-// UDP link and a 10 ms tick timer. The session is only ever touched from that
+// link (UDP, TCP or serial) and a 10 ms tick timer. The session is only ever touched from that
 // thread. The sink is shared with the other runners and must be thread-safe.
 // An exception from the session or the sink, on a datagram or on a tick, is
 // logged and that datagram or tick is lost; the next receive and the next tick
 // still happen.
 class SessionRunner {
  public:
-  // Binds the link here, on the calling thread, so a port that is taken fails
-  // at startup. Throws boost::system::system_error for that and
-  // std::invalid_argument for a bad channel.
+  // Opens the link here, on the calling thread, so a UDP port that is taken
+  // fails at startup. Throws boost::system::system_error for that and
+  // std::invalid_argument for a bad channel. A TCP or serial link that cannot
+  // connect yet keeps trying in the background.
   SessionRunner(const VehicleConfig& vehicle, const vehicle::SessionConfig& cfg,
                 mav::Channel ch, vehicle::TelemetrySink& sink);
   ~SessionRunner();
@@ -41,7 +42,7 @@ class SessionRunner {
   // than once, and before start().
   void stop();
 
-  // The bound UDP port, fixed at construction.
+  // The bound UDP port, fixed at construction; 0 for TCP and serial links.
   uint16_t local_port() const { return port_; }
 
  private:
@@ -78,7 +79,7 @@ class SessionRunner {
     void send(std::span<const uint8_t> bytes) override {
       if (link) link->send(bytes);
     }
-    mav::UdpLink* link = nullptr;
+    mav::Link* link = nullptr;
   };
 
   void arm_timer();
@@ -91,7 +92,7 @@ class SessionRunner {
   SystemClock clock_;
   LoggingSink log_sink_;
   LinkTransport transport_;
-  std::unique_ptr<mav::UdpLink> link_;
+  std::unique_ptr<mav::Link> link_;
   std::unique_ptr<vehicle::VehicleSession> session_;
   boost::asio::steady_timer timer_;
   std::chrono::steady_clock::time_point next_tick_{};

@@ -3,91 +3,166 @@
 # Contract v1 fields
 
 Bit is the position in `header.valid_mask`; `-` means the field has no bit.
+Class is `core` for fields every supported autopilot has to supply and
+`extended` for fields that are valid when the vehicle has them.
 
 ## Header
 
-| field | type | bit | unit |
-|---|---|---|---|
-| `seq` | `uint64` | - | - |
-| `t_source_us` | `uint64` | - | us |
-| `t_bridge_ns` | `uint64` | - | ns |
-| `valid_mask` | `uint64` | - | - |
+| field | type | bit | unit | class |
+|---|---|---|---|---|
+| `seq` | `uint64` | - | - | - |
+| `t_source_us` | `uint64` | - | us | - |
+| `t_bridge_ns` | `uint64` | - | ns | - |
+| `valid_mask` | `uint64` | - | - | - |
 
 ## VehicleInfo
 
-| field | type | bit | unit |
-|---|---|---|---|
-| `vehicle_id` | `uint32` | - | - |
-| `header` | `Header` | - | - |
-| `autopilot` | `AutopilotKind` | 0 | - |
-| `firmware_version` | `string<32>` | 1 | - |
-| `vehicle_type` | `VehicleType` | 2 | - |
-| `mav_sysid` | `octet` | 3 | - |
-| `mav_compid` | `octet` | 4 | - |
-| `capabilities` | `uint64` | 5 | - |
-| `contract_version` | `string<16>` | 6 | - |
+| field | type | bit | unit | class |
+|---|---|---|---|---|
+| `vehicle_id` | `uint32` | - | - | - |
+| `header` | `Header` | - | - | - |
+| `autopilot` | `AutopilotKind` | 0 | - | core |
+| `firmware_version` | `string<32>` | 1 | - | extended |
+| `vehicle_type` | `VehicleType` | 2 | - | core |
+| `mav_sysid` | `octet` | 3 | - | core |
+| `mav_compid` | `octet` | 4 | - | core |
+| `capabilities` | `uint64` | 5 | - | extended |
+| `contract_version` | `string<16>` | 6 | - | core |
 
 ## VehicleState
 
-| field | type | bit | unit |
-|---|---|---|---|
-| `vehicle_id` | `uint32` | - | - |
-| `header` | `Header` | - | - |
-| `armed` | `boolean` | 0 | - |
-| `mode` | `FlightMode` | 1 | - |
-| `mode_raw` | `string<32>` | 2 | - |
-| `landed` | `LandedState` | 3 | - |
-| `system_status` | `octet` | 4 | - |
+| field | type | bit | unit | class |
+|---|---|---|---|---|
+| `vehicle_id` | `uint32` | - | - | - |
+| `header` | `Header` | - | - | - |
+| `armed` | `boolean` | 0 | - | core |
+| `mode` | `FlightMode` | 1 | - | core |
+| `mode_raw` | `string<32>` | 2 | - | core |
+| `landed` | `LandedState` | 3 | - | extended |
+| `system_status` | `octet` | 4 | - | extended |
 
 ## Pose
 
-| field | type | bit | unit |
-|---|---|---|---|
-| `vehicle_id` | `uint32` | - | - |
-| `header` | `Header` | - | - |
-| `lat_deg` | `double` | 0 | deg |
-| `lon_deg` | `double` | 1 | deg |
-| `alt_msl_m` | `double` | 2 | m |
-| `alt_rel_home_m` | `double` | 3 | m |
-| `q_w` | `float` | 4 | - |
-| `q_x` | `float` | 5 | - |
-| `q_y` | `float` | 6 | - |
-| `q_z` | `float` | 7 | - |
-| `vel_n_mps` | `float` | 8 | m/s |
-| `vel_e_mps` | `float` | 9 | m/s |
-| `vel_d_mps` | `float` | 10 | m/s |
-| `heading_deg` | `float` | 11 | deg |
+| field | type | bit | unit | class |
+|---|---|---|---|---|
+| `vehicle_id` | `uint32` | - | - | - |
+| `header` | `Header` | - | - | - |
+| `lat_deg` | `double` | 0 | deg | core |
+| `lon_deg` | `double` | 1 | deg | core |
+| `alt_msl_m` | `double` | 2 | m | core |
+| `alt_rel_home_m` | `double` | 3 | m | extended |
+| `q_w` | `float` | 4 | - | core |
+| `q_x` | `float` | 5 | - | core |
+| `q_y` | `float` | 6 | - | core |
+| `q_z` | `float` | 7 | - | core |
+| `vel_n_mps` | `float` | 8 | m/s | core |
+| `vel_e_mps` | `float` | 9 | m/s | core |
+| `vel_d_mps` | `float` | 10 | m/s | core |
+| `heading_deg` | `float` | 11 | deg | extended |
 
 ## Health
 
-| field | type | bit | unit |
-|---|---|---|---|
-| `vehicle_id` | `uint32` | - | - |
-| `header` | `Header` | - | - |
-| `battery_voltage_v` | `float` | 0 | V |
-| `battery_current_a` | `float` | 1 | A |
-| `battery_remaining_pct` | `float` | 2 | % |
-| `battery_time_remaining_s` | `float` | 3 | s |
-| `gnss_fix` | `GnssFix` | 4 | - |
-| `gnss_satellites` | `octet` | 5 | - |
-| `gnss_hdop` | `float` | 6 | - |
-| `sensors_present` | `uint32` | 7 | - |
-| `sensors_enabled` | `uint32` | 8 | - |
-| `sensors_healthy` | `uint32` | 9 | - |
-| `estimator_ok` | `boolean` | 10 | - |
+| field | type | bit | unit | class |
+|---|---|---|---|---|
+| `vehicle_id` | `uint32` | - | - | - |
+| `header` | `Header` | - | - | - |
+| `battery_voltage_v` | `float` | 0 | V | core |
+| `battery_current_a` | `float` | 1 | A | extended |
+| `battery_remaining_pct` | `float` | 2 | % | core |
+| `battery_time_remaining_s` | `float` | 3 | s | extended |
+| `gnss_fix` | `GnssFix` | 4 | - | core |
+| `gnss_satellites` | `octet` | 5 | - | core |
+| `gnss_hdop` | `float` | 6 | - | extended |
+| `sensors_present` | `uint32` | 7 | - | extended |
+| `sensors_enabled` | `uint32` | 8 | - | extended |
+| `sensors_healthy` | `uint32` | 9 | - | extended |
+| `estimator_ok` | `boolean` | 10 | - | extended |
 
 ## LinkStatus
 
-| field | type | bit | unit |
-|---|---|---|---|
-| `vehicle_id` | `uint32` | - | - |
-| `header` | `Header` | - | - |
-| `state` | `LinkState` | 0 | - |
-| `state_since_ns` | `uint64` | 1 | ns |
-| `rx_rate_hz` | `float` | 2 | Hz |
-| `loss_pct` | `float` | 3 | % |
-| `last_rx_age_ms` | `uint32` | 4 | ms |
-| `signing` | `SigningState` | 5 | - |
+| field | type | bit | unit | class |
+|---|---|---|---|---|
+| `vehicle_id` | `uint32` | - | - | - |
+| `header` | `Header` | - | - | - |
+| `state` | `LinkState` | 0 | - | core |
+| `state_since_ns` | `uint64` | 1 | ns | core |
+| `rx_rate_hz` | `float` | 2 | Hz | core |
+| `loss_pct` | `float` | 3 | % | core |
+| `last_rx_age_ms` | `uint32` | 4 | ms | core |
+| `signing` | `SigningState` | 5 | - | core |
+
+## Waypoint
+
+| field | type | bit | unit | class |
+|---|---|---|---|---|
+| `lat_deg` | `double` | - | deg | - |
+| `lon_deg` | `double` | - | deg | - |
+| `alt_rel_home_m` | `float` | - | m | - |
+| `hold_s` | `float` | - | s | - |
+| `acceptance_radius_m` | `float` | - | m | - |
+
+## CommandParams
+
+| field | type | bit | unit | class |
+|---|---|---|---|---|
+| `lat_deg` | `double` | - | deg | - |
+| `lon_deg` | `double` | - | deg | - |
+| `alt_rel_home_m` | `float` | - | m | - |
+| `ground_speed_mps` | `float` | - | m/s | - |
+| `heading_deg` | `float` | - | deg | - |
+| `gimbal_pitch_deg` | `float` | - | deg | - |
+| `gimbal_yaw_deg` | `float` | - | deg | - |
+| `zoom_level` | `float` | - | - | - |
+
+## CommandRequest
+
+| field | type | bit | unit | class |
+|---|---|---|---|---|
+| `vehicle_id` | `uint32` | - | - | - |
+| `issuer_id` | `uint32` | - | - | - |
+| `command_id` | `uint64` | - | id | - |
+| `header` | `Header` | - | - | - |
+| `kind` | `CommandKind` | 0 | - | core |
+| `params` | `CommandParams` | 1 | - | core |
+| `waypoints` | `sequence<Waypoint, 500>` | 2 | - | core |
+| `deadline_ms` | `uint32` | 3 | ms | core |
+| `confirm_token` | `uint64` | 4 | id | core |
+| `operator_name` | `string<64>` | 5 | - | core |
+
+## CommandStatus
+
+| field | type | bit | unit | class |
+|---|---|---|---|---|
+| `vehicle_id` | `uint32` | - | - | - |
+| `issuer_id` | `uint32` | - | - | - |
+| `command_id` | `uint64` | - | id | - |
+| `header` | `Header` | - | - | - |
+| `kind` | `CommandKind` | 0 | - | core |
+| `state` | `CommandState` | 1 | - | core |
+| `mav_result` | `octet` | 2 | - | extended |
+| `mission_result` | `octet` | 3 | - | extended |
+| `progress_pct` | `float` | 4 | % | extended |
+| `detail` | `string<128>` | 5 | - | extended |
+| `t_received_ns` | `uint64` | 6 | ns | core |
+| `t_sent_ns` | `uint64` | 7 | ns | extended |
+| `t_in_progress_ns` | `uint64` | 8 | ns | extended |
+| `t_terminal_ns` | `uint64` | 9 | ns | extended |
+| `attempts` | `octet` | 10 | - | extended |
+
+## MissionState
+
+| field | type | bit | unit | class |
+|---|---|---|---|---|
+| `vehicle_id` | `uint32` | - | - | - |
+| `header` | `Header` | - | - | - |
+| `item_count` | `uint16` | 0 | - | extended |
+| `current_item` | `uint16` | 1 | - | extended |
+| `progress_pct` | `float` | 2 | % | extended |
+| `run_state` | `MissionRunState` | 3 | - | extended |
+| `mission_id` | `uint32` | 4 | - | extended |
+| `mission_hash` | `uint64` | 5 | id | extended |
+| `last_upload_state` | `CommandState` | 6 | - | extended |
+| `last_upload_command_id` | `uint64` | 7 | id | extended |
 
 ## AutopilotKind
 
@@ -116,3 +191,15 @@ Bit is the position in `header.valid_mask`; `-` means the field has no bit.
 ## SigningState
 
 `SIGNING_OFF`, `SIGNING_ON`, `SIGNING_FAILED`
+
+## CommandKind
+
+`COMMAND_KIND_UNKNOWN`, `COMMAND_KIND_ARM`, `COMMAND_KIND_DISARM`, `COMMAND_KIND_TAKEOFF`, `COMMAND_KIND_LAND`, `COMMAND_KIND_RETURN_HOME`, `COMMAND_KIND_HOLD`, `COMMAND_KIND_GOTO`, `COMMAND_KIND_SET_SPEED`, `COMMAND_KIND_SET_ALTITUDE`, `COMMAND_KIND_SET_HEADING`, `COMMAND_KIND_MISSION_UPLOAD`, `COMMAND_KIND_MISSION_START`, `COMMAND_KIND_MISSION_PAUSE`, `COMMAND_KIND_MISSION_CLEAR`, `COMMAND_KIND_GIMBAL_POINT`, `COMMAND_KIND_CAMERA_ZOOM`, `COMMAND_KIND_CAMERA_CAPTURE`, `COMMAND_KIND_VIDEO_START`, `COMMAND_KIND_VIDEO_STOP`, `COMMAND_KIND_EMERGENCY_ABORT`, `COMMAND_KIND_EMERGENCY_HOVER`, `COMMAND_KIND_EMERGENCY_KILL`
+
+## CommandState
+
+`COMMAND_STATE_UNKNOWN`, `COMMAND_STATE_RECEIVED`, `COMMAND_STATE_SENT`, `COMMAND_STATE_IN_PROGRESS`, `COMMAND_STATE_ACCEPTED`, `COMMAND_STATE_DENIED`, `COMMAND_STATE_FAILED`, `COMMAND_STATE_TIMED_OUT`, `COMMAND_STATE_CANCELLED`, `COMMAND_STATE_REJECTED_INVALID`, `COMMAND_STATE_REJECTED_UNSUPPORTED`, `COMMAND_STATE_REJECTED_BUSY`, `COMMAND_STATE_REJECTED_UNAUTHORISED`
+
+## MissionRunState
+
+`MISSION_RUN_UNKNOWN`, `MISSION_RUN_NONE`, `MISSION_RUN_NOT_STARTED`, `MISSION_RUN_ACTIVE`, `MISSION_RUN_PAUSED`, `MISSION_RUN_COMPLETE`

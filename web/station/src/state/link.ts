@@ -13,8 +13,8 @@ const labels: Record<LinkState, LinkLabel> = {
   LINK_RECOVERING: 'RECOVERING',
 }
 
-export function linkLabel(state: LinkState | undefined): LinkLabel {
-  return (state !== undefined && labels[state]) || 'UNKNOWN'
+export function linkLabel(state: LinkState | null | undefined): LinkLabel {
+  return (state != null && labels[state]) || 'UNKNOWN'
 }
 
 export const LINK_COLOR: Readonly<Record<LinkLabel, string>> = {

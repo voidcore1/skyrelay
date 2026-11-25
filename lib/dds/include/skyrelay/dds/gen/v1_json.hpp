@@ -2,15 +2,124 @@
 #pragma once
 
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
+#include <initializer_list>
+#include <limits>
+#include <stdexcept>
+#include <string>
+#include <string_view>
+#include <type_traits>
+#include <vector>
 
 #include <nlohmann/json.hpp>
 
 #include <skyrelay/dds/idl.hpp>
 
-// Enums become their literal name, NaN floats become null. An enum value
-// outside the known literals (a newer peer) also becomes null.
+// to_json_value: enums become their literal name, NaN floats become null,
+// and an enum value outside the known literals (a newer peer) also becomes
+// null. 64-bit ids (`unit: id`) become decimal strings.
+//
+// from_json_value is strict: an object with exactly the struct's fields,
+// every value of the right type and in range. Errors are JsonError with
+// "<path>: <problem>", e.g. "params.alt_rel_home_m: expected a number or null".
 
 namespace skyrelay::v1 {
+
+class JsonError : public std::invalid_argument {
+  using std::invalid_argument::invalid_argument;
+};
+
+namespace json_detail {
+
+inline std::string join(std::string_view path, std::string_view name) {
+  return path.empty() ? std::string(name) : std::string(path) + "." + std::string(name);
+}
+
+inline std::string index(std::string_view path, std::size_t i) {
+  return std::string(path) + "[" + std::to_string(i) + "]";
+}
+
+[[noreturn]] inline void fail(std::string_view path, std::string_view problem) {
+  if (path.empty()) throw JsonError(std::string(problem));
+  throw JsonError(std::string(path) + ": " + std::string(problem));
+}
+
+template <class T>
+T get_integer(const nlohmann::json& j, std::string_view path) {
+  if (!j.is_number_integer()) fail(path, "expected an integer");
+  if (j.is_number_unsigned()) {
+    const auto u = j.get<std::uint64_t>();
+    if (u > static_cast<std::uint64_t>(std::numeric_limits<T>::max())) fail(path, "out of range");
+    return static_cast<T>(u);
+  }
+  const auto i = j.get<std::int64_t>();
+  if constexpr (std::is_unsigned_v<T>) {
+    if (i < 0) fail(path, "out of range");
+  } else {
+    if (i < static_cast<std::int64_t>(std::numeric_limits<T>::min()) ||
+        i > static_cast<std::int64_t>(std::numeric_limits<T>::max()))
+      fail(path, "out of range");
+  }
+  return static_cast<T>(i);
+}
+
+template <class T>
+T get_float(const nlohmann::json& j, std::string_view path) {
+  if (j.is_null()) return std::numeric_limits<T>::quiet_NaN();
+  if (!j.is_number()) fail(path, "expected a number or null");
+  const double d = j.get<double>();
+  if (std::isfinite(d) && std::fabs(d) > static_cast<double>(std::numeric_limits<T>::max()))
+    fail(path, "out of range");
+  return static_cast<T>(d);
+}
+
+inline bool get_bool(const nlohmann::json& j, std::string_view path) {
+  if (!j.is_boolean()) fail(path, "expected a boolean");
+  return j.get<bool>();
+}
+
+inline std::string get_string(const nlohmann::json& j, std::string_view path, std::size_t max_bytes) {
+  if (!j.is_string()) fail(path, "expected a string");
+  auto s = j.get<std::string>();
+  if (s.size() > max_bytes) fail(path, "longer than " + std::to_string(max_bytes) + " bytes");
+  return s;
+}
+
+// A 64-bit id travels as a decimal string of 1 to 20 digits.
+inline std::uint64_t get_id(const nlohmann::json& j, std::string_view path) {
+  if (!j.is_string()) fail(path, "expected a decimal string");
+  const auto& s = j.get_ref<const std::string&>();
+  if (s.empty() || s.size() > 20) fail(path, "expected a decimal string");
+  std::uint64_t v = 0;
+  for (const char c : s) {
+    if (c < '0' || c > '9') fail(path, "expected a decimal string");
+    const auto d = static_cast<std::uint64_t>(c - '0');
+    if (v > (std::numeric_limits<std::uint64_t>::max() - d) / 10) fail(path, "out of range");
+    v = v * 10 + d;
+  }
+  return v;
+}
+
+inline const nlohmann::json& require_object(const nlohmann::json& j, std::string_view path,
+                                            std::initializer_list<std::string_view> keys) {
+  if (!j.is_object()) fail(path, "expected an object");
+  for (auto it = j.begin(); it != j.end(); ++it) {
+    bool known = false;
+    for (const auto k : keys) known = known || k == it.key();
+    if (!known) fail(join(path, it.key()), "unexpected key");
+  }
+  return j;
+}
+
+inline const nlohmann::json& member(const nlohmann::json& j, std::string_view path,
+                                    std::string_view key) {
+  const auto it = j.find(key);
+  if (it == j.end()) fail(join(path, key), "missing");
+  return *it;
+}
+
+}  // namespace json_detail
 
 inline nlohmann::json to_json_value(AutopilotKind v) {
   switch (v) {
@@ -22,6 +131,17 @@ inline nlohmann::json to_json_value(AutopilotKind v) {
   return nullptr;
 }
 
+inline void from_json_value(const nlohmann::json& j, AutopilotKind& out,
+                            std::string_view path = {}) {
+  if (!j.is_string()) json_detail::fail(path, "expected a string");
+  const auto& s = j.get_ref<const std::string&>();
+  if (s == "AUTOPILOT_UNKNOWN") { out = AutopilotKind::AUTOPILOT_UNKNOWN; return; }
+  if (s == "AUTOPILOT_PX4") { out = AutopilotKind::AUTOPILOT_PX4; return; }
+  if (s == "AUTOPILOT_ARDUPILOT") { out = AutopilotKind::AUTOPILOT_ARDUPILOT; return; }
+  if (s == "AUTOPILOT_OTHER") { out = AutopilotKind::AUTOPILOT_OTHER; return; }
+  json_detail::fail(path, "unknown literal '" + s + "'");
+}
+
 inline nlohmann::json to_json_value(VehicleType v) {
   switch (v) {
     case VehicleType::VEHICLE_TYPE_UNKNOWN: return "VEHICLE_TYPE_UNKNOWN";
@@ -31,6 +151,18 @@ inline nlohmann::json to_json_value(VehicleType v) {
     case VehicleType::VEHICLE_TYPE_OTHER: return "VEHICLE_TYPE_OTHER";
   }
   return nullptr;
+}
+
+inline void from_json_value(const nlohmann::json& j, VehicleType& out,
+                            std::string_view path = {}) {
+  if (!j.is_string()) json_detail::fail(path, "expected a string");
+  const auto& s = j.get_ref<const std::string&>();
+  if (s == "VEHICLE_TYPE_UNKNOWN") { out = VehicleType::VEHICLE_TYPE_UNKNOWN; return; }
+  if (s == "VEHICLE_TYPE_MULTIROTOR") { out = VehicleType::VEHICLE_TYPE_MULTIROTOR; return; }
+  if (s == "VEHICLE_TYPE_FIXED_WING") { out = VehicleType::VEHICLE_TYPE_FIXED_WING; return; }
+  if (s == "VEHICLE_TYPE_VTOL") { out = VehicleType::VEHICLE_TYPE_VTOL; return; }
+  if (s == "VEHICLE_TYPE_OTHER") { out = VehicleType::VEHICLE_TYPE_OTHER; return; }
+  json_detail::fail(path, "unknown literal '" + s + "'");
 }
 
 inline nlohmann::json to_json_value(FlightMode v) {
@@ -52,6 +184,26 @@ inline nlohmann::json to_json_value(FlightMode v) {
   return nullptr;
 }
 
+inline void from_json_value(const nlohmann::json& j, FlightMode& out,
+                            std::string_view path = {}) {
+  if (!j.is_string()) json_detail::fail(path, "expected a string");
+  const auto& s = j.get_ref<const std::string&>();
+  if (s == "FLIGHT_MODE_UNKNOWN") { out = FlightMode::FLIGHT_MODE_UNKNOWN; return; }
+  if (s == "FLIGHT_MODE_MANUAL") { out = FlightMode::FLIGHT_MODE_MANUAL; return; }
+  if (s == "FLIGHT_MODE_STABILIZED") { out = FlightMode::FLIGHT_MODE_STABILIZED; return; }
+  if (s == "FLIGHT_MODE_ACRO") { out = FlightMode::FLIGHT_MODE_ACRO; return; }
+  if (s == "FLIGHT_MODE_ALTITUDE_HOLD") { out = FlightMode::FLIGHT_MODE_ALTITUDE_HOLD; return; }
+  if (s == "FLIGHT_MODE_POSITION_HOLD") { out = FlightMode::FLIGHT_MODE_POSITION_HOLD; return; }
+  if (s == "FLIGHT_MODE_HOLD") { out = FlightMode::FLIGHT_MODE_HOLD; return; }
+  if (s == "FLIGHT_MODE_MISSION") { out = FlightMode::FLIGHT_MODE_MISSION; return; }
+  if (s == "FLIGHT_MODE_RETURN") { out = FlightMode::FLIGHT_MODE_RETURN; return; }
+  if (s == "FLIGHT_MODE_LAND") { out = FlightMode::FLIGHT_MODE_LAND; return; }
+  if (s == "FLIGHT_MODE_TAKEOFF") { out = FlightMode::FLIGHT_MODE_TAKEOFF; return; }
+  if (s == "FLIGHT_MODE_GUIDED") { out = FlightMode::FLIGHT_MODE_GUIDED; return; }
+  if (s == "FLIGHT_MODE_OFFBOARD") { out = FlightMode::FLIGHT_MODE_OFFBOARD; return; }
+  json_detail::fail(path, "unknown literal '" + s + "'");
+}
+
 inline nlohmann::json to_json_value(LandedState v) {
   switch (v) {
     case LandedState::LANDED_STATE_UNKNOWN: return "LANDED_STATE_UNKNOWN";
@@ -61,6 +213,18 @@ inline nlohmann::json to_json_value(LandedState v) {
     case LandedState::LANDED_STATE_LANDING: return "LANDED_STATE_LANDING";
   }
   return nullptr;
+}
+
+inline void from_json_value(const nlohmann::json& j, LandedState& out,
+                            std::string_view path = {}) {
+  if (!j.is_string()) json_detail::fail(path, "expected a string");
+  const auto& s = j.get_ref<const std::string&>();
+  if (s == "LANDED_STATE_UNKNOWN") { out = LandedState::LANDED_STATE_UNKNOWN; return; }
+  if (s == "LANDED_STATE_ON_GROUND") { out = LandedState::LANDED_STATE_ON_GROUND; return; }
+  if (s == "LANDED_STATE_IN_AIR") { out = LandedState::LANDED_STATE_IN_AIR; return; }
+  if (s == "LANDED_STATE_TAKING_OFF") { out = LandedState::LANDED_STATE_TAKING_OFF; return; }
+  if (s == "LANDED_STATE_LANDING") { out = LandedState::LANDED_STATE_LANDING; return; }
+  json_detail::fail(path, "unknown literal '" + s + "'");
 }
 
 inline nlohmann::json to_json_value(GnssFix v) {
@@ -76,6 +240,20 @@ inline nlohmann::json to_json_value(GnssFix v) {
   return nullptr;
 }
 
+inline void from_json_value(const nlohmann::json& j, GnssFix& out,
+                            std::string_view path = {}) {
+  if (!j.is_string()) json_detail::fail(path, "expected a string");
+  const auto& s = j.get_ref<const std::string&>();
+  if (s == "GNSS_FIX_UNKNOWN") { out = GnssFix::GNSS_FIX_UNKNOWN; return; }
+  if (s == "GNSS_FIX_NO_FIX") { out = GnssFix::GNSS_FIX_NO_FIX; return; }
+  if (s == "GNSS_FIX_2D") { out = GnssFix::GNSS_FIX_2D; return; }
+  if (s == "GNSS_FIX_3D") { out = GnssFix::GNSS_FIX_3D; return; }
+  if (s == "GNSS_FIX_DGPS") { out = GnssFix::GNSS_FIX_DGPS; return; }
+  if (s == "GNSS_FIX_RTK_FLOAT") { out = GnssFix::GNSS_FIX_RTK_FLOAT; return; }
+  if (s == "GNSS_FIX_RTK_FIXED") { out = GnssFix::GNSS_FIX_RTK_FIXED; return; }
+  json_detail::fail(path, "unknown literal '" + s + "'");
+}
+
 inline nlohmann::json to_json_value(LinkState v) {
   switch (v) {
     case LinkState::LINK_LOST: return "LINK_LOST";
@@ -84,6 +262,17 @@ inline nlohmann::json to_json_value(LinkState v) {
     case LinkState::LINK_DEGRADED: return "LINK_DEGRADED";
   }
   return nullptr;
+}
+
+inline void from_json_value(const nlohmann::json& j, LinkState& out,
+                            std::string_view path = {}) {
+  if (!j.is_string()) json_detail::fail(path, "expected a string");
+  const auto& s = j.get_ref<const std::string&>();
+  if (s == "LINK_LOST") { out = LinkState::LINK_LOST; return; }
+  if (s == "LINK_RECOVERING") { out = LinkState::LINK_RECOVERING; return; }
+  if (s == "LINK_CONNECTED") { out = LinkState::LINK_CONNECTED; return; }
+  if (s == "LINK_DEGRADED") { out = LinkState::LINK_DEGRADED; return; }
+  json_detail::fail(path, "unknown literal '" + s + "'");
 }
 
 inline nlohmann::json to_json_value(SigningState v) {
@@ -95,6 +284,139 @@ inline nlohmann::json to_json_value(SigningState v) {
   return nullptr;
 }
 
+inline void from_json_value(const nlohmann::json& j, SigningState& out,
+                            std::string_view path = {}) {
+  if (!j.is_string()) json_detail::fail(path, "expected a string");
+  const auto& s = j.get_ref<const std::string&>();
+  if (s == "SIGNING_OFF") { out = SigningState::SIGNING_OFF; return; }
+  if (s == "SIGNING_ON") { out = SigningState::SIGNING_ON; return; }
+  if (s == "SIGNING_FAILED") { out = SigningState::SIGNING_FAILED; return; }
+  json_detail::fail(path, "unknown literal '" + s + "'");
+}
+
+inline nlohmann::json to_json_value(CommandKind v) {
+  switch (v) {
+    case CommandKind::COMMAND_KIND_UNKNOWN: return "COMMAND_KIND_UNKNOWN";
+    case CommandKind::COMMAND_KIND_ARM: return "COMMAND_KIND_ARM";
+    case CommandKind::COMMAND_KIND_DISARM: return "COMMAND_KIND_DISARM";
+    case CommandKind::COMMAND_KIND_TAKEOFF: return "COMMAND_KIND_TAKEOFF";
+    case CommandKind::COMMAND_KIND_LAND: return "COMMAND_KIND_LAND";
+    case CommandKind::COMMAND_KIND_RETURN_HOME: return "COMMAND_KIND_RETURN_HOME";
+    case CommandKind::COMMAND_KIND_HOLD: return "COMMAND_KIND_HOLD";
+    case CommandKind::COMMAND_KIND_GOTO: return "COMMAND_KIND_GOTO";
+    case CommandKind::COMMAND_KIND_SET_SPEED: return "COMMAND_KIND_SET_SPEED";
+    case CommandKind::COMMAND_KIND_SET_ALTITUDE: return "COMMAND_KIND_SET_ALTITUDE";
+    case CommandKind::COMMAND_KIND_SET_HEADING: return "COMMAND_KIND_SET_HEADING";
+    case CommandKind::COMMAND_KIND_MISSION_UPLOAD: return "COMMAND_KIND_MISSION_UPLOAD";
+    case CommandKind::COMMAND_KIND_MISSION_START: return "COMMAND_KIND_MISSION_START";
+    case CommandKind::COMMAND_KIND_MISSION_PAUSE: return "COMMAND_KIND_MISSION_PAUSE";
+    case CommandKind::COMMAND_KIND_MISSION_CLEAR: return "COMMAND_KIND_MISSION_CLEAR";
+    case CommandKind::COMMAND_KIND_GIMBAL_POINT: return "COMMAND_KIND_GIMBAL_POINT";
+    case CommandKind::COMMAND_KIND_CAMERA_ZOOM: return "COMMAND_KIND_CAMERA_ZOOM";
+    case CommandKind::COMMAND_KIND_CAMERA_CAPTURE: return "COMMAND_KIND_CAMERA_CAPTURE";
+    case CommandKind::COMMAND_KIND_VIDEO_START: return "COMMAND_KIND_VIDEO_START";
+    case CommandKind::COMMAND_KIND_VIDEO_STOP: return "COMMAND_KIND_VIDEO_STOP";
+    case CommandKind::COMMAND_KIND_EMERGENCY_ABORT: return "COMMAND_KIND_EMERGENCY_ABORT";
+    case CommandKind::COMMAND_KIND_EMERGENCY_HOVER: return "COMMAND_KIND_EMERGENCY_HOVER";
+    case CommandKind::COMMAND_KIND_EMERGENCY_KILL: return "COMMAND_KIND_EMERGENCY_KILL";
+  }
+  return nullptr;
+}
+
+inline void from_json_value(const nlohmann::json& j, CommandKind& out,
+                            std::string_view path = {}) {
+  if (!j.is_string()) json_detail::fail(path, "expected a string");
+  const auto& s = j.get_ref<const std::string&>();
+  if (s == "COMMAND_KIND_UNKNOWN") { out = CommandKind::COMMAND_KIND_UNKNOWN; return; }
+  if (s == "COMMAND_KIND_ARM") { out = CommandKind::COMMAND_KIND_ARM; return; }
+  if (s == "COMMAND_KIND_DISARM") { out = CommandKind::COMMAND_KIND_DISARM; return; }
+  if (s == "COMMAND_KIND_TAKEOFF") { out = CommandKind::COMMAND_KIND_TAKEOFF; return; }
+  if (s == "COMMAND_KIND_LAND") { out = CommandKind::COMMAND_KIND_LAND; return; }
+  if (s == "COMMAND_KIND_RETURN_HOME") { out = CommandKind::COMMAND_KIND_RETURN_HOME; return; }
+  if (s == "COMMAND_KIND_HOLD") { out = CommandKind::COMMAND_KIND_HOLD; return; }
+  if (s == "COMMAND_KIND_GOTO") { out = CommandKind::COMMAND_KIND_GOTO; return; }
+  if (s == "COMMAND_KIND_SET_SPEED") { out = CommandKind::COMMAND_KIND_SET_SPEED; return; }
+  if (s == "COMMAND_KIND_SET_ALTITUDE") { out = CommandKind::COMMAND_KIND_SET_ALTITUDE; return; }
+  if (s == "COMMAND_KIND_SET_HEADING") { out = CommandKind::COMMAND_KIND_SET_HEADING; return; }
+  if (s == "COMMAND_KIND_MISSION_UPLOAD") { out = CommandKind::COMMAND_KIND_MISSION_UPLOAD; return; }
+  if (s == "COMMAND_KIND_MISSION_START") { out = CommandKind::COMMAND_KIND_MISSION_START; return; }
+  if (s == "COMMAND_KIND_MISSION_PAUSE") { out = CommandKind::COMMAND_KIND_MISSION_PAUSE; return; }
+  if (s == "COMMAND_KIND_MISSION_CLEAR") { out = CommandKind::COMMAND_KIND_MISSION_CLEAR; return; }
+  if (s == "COMMAND_KIND_GIMBAL_POINT") { out = CommandKind::COMMAND_KIND_GIMBAL_POINT; return; }
+  if (s == "COMMAND_KIND_CAMERA_ZOOM") { out = CommandKind::COMMAND_KIND_CAMERA_ZOOM; return; }
+  if (s == "COMMAND_KIND_CAMERA_CAPTURE") { out = CommandKind::COMMAND_KIND_CAMERA_CAPTURE; return; }
+  if (s == "COMMAND_KIND_VIDEO_START") { out = CommandKind::COMMAND_KIND_VIDEO_START; return; }
+  if (s == "COMMAND_KIND_VIDEO_STOP") { out = CommandKind::COMMAND_KIND_VIDEO_STOP; return; }
+  if (s == "COMMAND_KIND_EMERGENCY_ABORT") { out = CommandKind::COMMAND_KIND_EMERGENCY_ABORT; return; }
+  if (s == "COMMAND_KIND_EMERGENCY_HOVER") { out = CommandKind::COMMAND_KIND_EMERGENCY_HOVER; return; }
+  if (s == "COMMAND_KIND_EMERGENCY_KILL") { out = CommandKind::COMMAND_KIND_EMERGENCY_KILL; return; }
+  json_detail::fail(path, "unknown literal '" + s + "'");
+}
+
+inline nlohmann::json to_json_value(CommandState v) {
+  switch (v) {
+    case CommandState::COMMAND_STATE_UNKNOWN: return "COMMAND_STATE_UNKNOWN";
+    case CommandState::COMMAND_STATE_RECEIVED: return "COMMAND_STATE_RECEIVED";
+    case CommandState::COMMAND_STATE_SENT: return "COMMAND_STATE_SENT";
+    case CommandState::COMMAND_STATE_IN_PROGRESS: return "COMMAND_STATE_IN_PROGRESS";
+    case CommandState::COMMAND_STATE_ACCEPTED: return "COMMAND_STATE_ACCEPTED";
+    case CommandState::COMMAND_STATE_DENIED: return "COMMAND_STATE_DENIED";
+    case CommandState::COMMAND_STATE_FAILED: return "COMMAND_STATE_FAILED";
+    case CommandState::COMMAND_STATE_TIMED_OUT: return "COMMAND_STATE_TIMED_OUT";
+    case CommandState::COMMAND_STATE_CANCELLED: return "COMMAND_STATE_CANCELLED";
+    case CommandState::COMMAND_STATE_REJECTED_INVALID: return "COMMAND_STATE_REJECTED_INVALID";
+    case CommandState::COMMAND_STATE_REJECTED_UNSUPPORTED: return "COMMAND_STATE_REJECTED_UNSUPPORTED";
+    case CommandState::COMMAND_STATE_REJECTED_BUSY: return "COMMAND_STATE_REJECTED_BUSY";
+    case CommandState::COMMAND_STATE_REJECTED_UNAUTHORISED: return "COMMAND_STATE_REJECTED_UNAUTHORISED";
+  }
+  return nullptr;
+}
+
+inline void from_json_value(const nlohmann::json& j, CommandState& out,
+                            std::string_view path = {}) {
+  if (!j.is_string()) json_detail::fail(path, "expected a string");
+  const auto& s = j.get_ref<const std::string&>();
+  if (s == "COMMAND_STATE_UNKNOWN") { out = CommandState::COMMAND_STATE_UNKNOWN; return; }
+  if (s == "COMMAND_STATE_RECEIVED") { out = CommandState::COMMAND_STATE_RECEIVED; return; }
+  if (s == "COMMAND_STATE_SENT") { out = CommandState::COMMAND_STATE_SENT; return; }
+  if (s == "COMMAND_STATE_IN_PROGRESS") { out = CommandState::COMMAND_STATE_IN_PROGRESS; return; }
+  if (s == "COMMAND_STATE_ACCEPTED") { out = CommandState::COMMAND_STATE_ACCEPTED; return; }
+  if (s == "COMMAND_STATE_DENIED") { out = CommandState::COMMAND_STATE_DENIED; return; }
+  if (s == "COMMAND_STATE_FAILED") { out = CommandState::COMMAND_STATE_FAILED; return; }
+  if (s == "COMMAND_STATE_TIMED_OUT") { out = CommandState::COMMAND_STATE_TIMED_OUT; return; }
+  if (s == "COMMAND_STATE_CANCELLED") { out = CommandState::COMMAND_STATE_CANCELLED; return; }
+  if (s == "COMMAND_STATE_REJECTED_INVALID") { out = CommandState::COMMAND_STATE_REJECTED_INVALID; return; }
+  if (s == "COMMAND_STATE_REJECTED_UNSUPPORTED") { out = CommandState::COMMAND_STATE_REJECTED_UNSUPPORTED; return; }
+  if (s == "COMMAND_STATE_REJECTED_BUSY") { out = CommandState::COMMAND_STATE_REJECTED_BUSY; return; }
+  if (s == "COMMAND_STATE_REJECTED_UNAUTHORISED") { out = CommandState::COMMAND_STATE_REJECTED_UNAUTHORISED; return; }
+  json_detail::fail(path, "unknown literal '" + s + "'");
+}
+
+inline nlohmann::json to_json_value(MissionRunState v) {
+  switch (v) {
+    case MissionRunState::MISSION_RUN_UNKNOWN: return "MISSION_RUN_UNKNOWN";
+    case MissionRunState::MISSION_RUN_NONE: return "MISSION_RUN_NONE";
+    case MissionRunState::MISSION_RUN_NOT_STARTED: return "MISSION_RUN_NOT_STARTED";
+    case MissionRunState::MISSION_RUN_ACTIVE: return "MISSION_RUN_ACTIVE";
+    case MissionRunState::MISSION_RUN_PAUSED: return "MISSION_RUN_PAUSED";
+    case MissionRunState::MISSION_RUN_COMPLETE: return "MISSION_RUN_COMPLETE";
+  }
+  return nullptr;
+}
+
+inline void from_json_value(const nlohmann::json& j, MissionRunState& out,
+                            std::string_view path = {}) {
+  if (!j.is_string()) json_detail::fail(path, "expected a string");
+  const auto& s = j.get_ref<const std::string&>();
+  if (s == "MISSION_RUN_UNKNOWN") { out = MissionRunState::MISSION_RUN_UNKNOWN; return; }
+  if (s == "MISSION_RUN_NONE") { out = MissionRunState::MISSION_RUN_NONE; return; }
+  if (s == "MISSION_RUN_NOT_STARTED") { out = MissionRunState::MISSION_RUN_NOT_STARTED; return; }
+  if (s == "MISSION_RUN_ACTIVE") { out = MissionRunState::MISSION_RUN_ACTIVE; return; }
+  if (s == "MISSION_RUN_PAUSED") { out = MissionRunState::MISSION_RUN_PAUSED; return; }
+  if (s == "MISSION_RUN_COMPLETE") { out = MissionRunState::MISSION_RUN_COMPLETE; return; }
+  json_detail::fail(path, "unknown literal '" + s + "'");
+}
+
 inline nlohmann::json to_json_value(const Header& v) {
   nlohmann::json j = nlohmann::json::object();
   j["seq"] = nlohmann::json(v.seq());
@@ -102,6 +424,31 @@ inline nlohmann::json to_json_value(const Header& v) {
   j["t_bridge_ns"] = nlohmann::json(v.t_bridge_ns());
   j["valid_mask"] = nlohmann::json(v.valid_mask());
   return j;
+}
+
+inline void from_json_value(const nlohmann::json& j, Header& out,
+                            std::string_view path = {}) {
+  json_detail::require_object(j, path, {"seq", "t_source_us", "t_bridge_ns", "valid_mask"});
+  {
+    const auto& v = json_detail::member(j, path, "seq");
+    const auto p = json_detail::join(path, "seq");
+    out.seq(json_detail::get_integer<uint64_t>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "t_source_us");
+    const auto p = json_detail::join(path, "t_source_us");
+    out.t_source_us(json_detail::get_integer<uint64_t>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "t_bridge_ns");
+    const auto p = json_detail::join(path, "t_bridge_ns");
+    out.t_bridge_ns(json_detail::get_integer<uint64_t>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "valid_mask");
+    const auto p = json_detail::join(path, "valid_mask");
+    out.valid_mask(json_detail::get_integer<uint64_t>(v, p));
+  }
 }
 
 inline nlohmann::json to_json_value(const VehicleInfo& v) {
@@ -118,6 +465,60 @@ inline nlohmann::json to_json_value(const VehicleInfo& v) {
   return j;
 }
 
+inline void from_json_value(const nlohmann::json& j, VehicleInfo& out,
+                            std::string_view path = {}) {
+  json_detail::require_object(j, path, {"vehicle_id", "header", "autopilot", "firmware_version", "vehicle_type", "mav_sysid", "mav_compid", "capabilities", "contract_version"});
+  {
+    const auto& v = json_detail::member(j, path, "vehicle_id");
+    const auto p = json_detail::join(path, "vehicle_id");
+    out.vehicle_id(json_detail::get_integer<uint32_t>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "header");
+    const auto p = json_detail::join(path, "header");
+    from_json_value(v, out.header(), p);
+  }
+  {
+    const auto& v = json_detail::member(j, path, "autopilot");
+    const auto p = json_detail::join(path, "autopilot");
+    AutopilotKind e{};
+    from_json_value(v, e, p);
+    out.autopilot(e);
+  }
+  {
+    const auto& v = json_detail::member(j, path, "firmware_version");
+    const auto p = json_detail::join(path, "firmware_version");
+    out.firmware_version(json_detail::get_string(v, p, 32));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "vehicle_type");
+    const auto p = json_detail::join(path, "vehicle_type");
+    VehicleType e{};
+    from_json_value(v, e, p);
+    out.vehicle_type(e);
+  }
+  {
+    const auto& v = json_detail::member(j, path, "mav_sysid");
+    const auto p = json_detail::join(path, "mav_sysid");
+    out.mav_sysid(json_detail::get_integer<uint8_t>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "mav_compid");
+    const auto p = json_detail::join(path, "mav_compid");
+    out.mav_compid(json_detail::get_integer<uint8_t>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "capabilities");
+    const auto p = json_detail::join(path, "capabilities");
+    out.capabilities(json_detail::get_integer<uint64_t>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "contract_version");
+    const auto p = json_detail::join(path, "contract_version");
+    out.contract_version(json_detail::get_string(v, p, 16));
+  }
+}
+
 inline nlohmann::json to_json_value(const VehicleState& v) {
   nlohmann::json j = nlohmann::json::object();
   j["vehicle_id"] = nlohmann::json(v.vehicle_id());
@@ -128,6 +529,50 @@ inline nlohmann::json to_json_value(const VehicleState& v) {
   j["landed"] = to_json_value(v.landed());
   j["system_status"] = nlohmann::json(v.system_status());
   return j;
+}
+
+inline void from_json_value(const nlohmann::json& j, VehicleState& out,
+                            std::string_view path = {}) {
+  json_detail::require_object(j, path, {"vehicle_id", "header", "armed", "mode", "mode_raw", "landed", "system_status"});
+  {
+    const auto& v = json_detail::member(j, path, "vehicle_id");
+    const auto p = json_detail::join(path, "vehicle_id");
+    out.vehicle_id(json_detail::get_integer<uint32_t>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "header");
+    const auto p = json_detail::join(path, "header");
+    from_json_value(v, out.header(), p);
+  }
+  {
+    const auto& v = json_detail::member(j, path, "armed");
+    const auto p = json_detail::join(path, "armed");
+    out.armed(json_detail::get_bool(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "mode");
+    const auto p = json_detail::join(path, "mode");
+    FlightMode e{};
+    from_json_value(v, e, p);
+    out.mode(e);
+  }
+  {
+    const auto& v = json_detail::member(j, path, "mode_raw");
+    const auto p = json_detail::join(path, "mode_raw");
+    out.mode_raw(json_detail::get_string(v, p, 32));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "landed");
+    const auto p = json_detail::join(path, "landed");
+    LandedState e{};
+    from_json_value(v, e, p);
+    out.landed(e);
+  }
+  {
+    const auto& v = json_detail::member(j, path, "system_status");
+    const auto p = json_detail::join(path, "system_status");
+    out.system_status(json_detail::get_integer<uint8_t>(v, p));
+  }
 }
 
 inline nlohmann::json to_json_value(const Pose& v) {
@@ -149,6 +594,81 @@ inline nlohmann::json to_json_value(const Pose& v) {
   return j;
 }
 
+inline void from_json_value(const nlohmann::json& j, Pose& out,
+                            std::string_view path = {}) {
+  json_detail::require_object(j, path, {"vehicle_id", "header", "lat_deg", "lon_deg", "alt_msl_m", "alt_rel_home_m", "q_w", "q_x", "q_y", "q_z", "vel_n_mps", "vel_e_mps", "vel_d_mps", "heading_deg"});
+  {
+    const auto& v = json_detail::member(j, path, "vehicle_id");
+    const auto p = json_detail::join(path, "vehicle_id");
+    out.vehicle_id(json_detail::get_integer<uint32_t>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "header");
+    const auto p = json_detail::join(path, "header");
+    from_json_value(v, out.header(), p);
+  }
+  {
+    const auto& v = json_detail::member(j, path, "lat_deg");
+    const auto p = json_detail::join(path, "lat_deg");
+    out.lat_deg(json_detail::get_float<double>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "lon_deg");
+    const auto p = json_detail::join(path, "lon_deg");
+    out.lon_deg(json_detail::get_float<double>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "alt_msl_m");
+    const auto p = json_detail::join(path, "alt_msl_m");
+    out.alt_msl_m(json_detail::get_float<double>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "alt_rel_home_m");
+    const auto p = json_detail::join(path, "alt_rel_home_m");
+    out.alt_rel_home_m(json_detail::get_float<double>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "q_w");
+    const auto p = json_detail::join(path, "q_w");
+    out.q_w(json_detail::get_float<float>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "q_x");
+    const auto p = json_detail::join(path, "q_x");
+    out.q_x(json_detail::get_float<float>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "q_y");
+    const auto p = json_detail::join(path, "q_y");
+    out.q_y(json_detail::get_float<float>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "q_z");
+    const auto p = json_detail::join(path, "q_z");
+    out.q_z(json_detail::get_float<float>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "vel_n_mps");
+    const auto p = json_detail::join(path, "vel_n_mps");
+    out.vel_n_mps(json_detail::get_float<float>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "vel_e_mps");
+    const auto p = json_detail::join(path, "vel_e_mps");
+    out.vel_e_mps(json_detail::get_float<float>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "vel_d_mps");
+    const auto p = json_detail::join(path, "vel_d_mps");
+    out.vel_d_mps(json_detail::get_float<float>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "heading_deg");
+    const auto p = json_detail::join(path, "heading_deg");
+    out.heading_deg(json_detail::get_float<float>(v, p));
+  }
+}
+
 inline nlohmann::json to_json_value(const Health& v) {
   nlohmann::json j = nlohmann::json::object();
   j["vehicle_id"] = nlohmann::json(v.vehicle_id());
@@ -167,6 +687,78 @@ inline nlohmann::json to_json_value(const Health& v) {
   return j;
 }
 
+inline void from_json_value(const nlohmann::json& j, Health& out,
+                            std::string_view path = {}) {
+  json_detail::require_object(j, path, {"vehicle_id", "header", "battery_voltage_v", "battery_current_a", "battery_remaining_pct", "battery_time_remaining_s", "gnss_fix", "gnss_satellites", "gnss_hdop", "sensors_present", "sensors_enabled", "sensors_healthy", "estimator_ok"});
+  {
+    const auto& v = json_detail::member(j, path, "vehicle_id");
+    const auto p = json_detail::join(path, "vehicle_id");
+    out.vehicle_id(json_detail::get_integer<uint32_t>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "header");
+    const auto p = json_detail::join(path, "header");
+    from_json_value(v, out.header(), p);
+  }
+  {
+    const auto& v = json_detail::member(j, path, "battery_voltage_v");
+    const auto p = json_detail::join(path, "battery_voltage_v");
+    out.battery_voltage_v(json_detail::get_float<float>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "battery_current_a");
+    const auto p = json_detail::join(path, "battery_current_a");
+    out.battery_current_a(json_detail::get_float<float>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "battery_remaining_pct");
+    const auto p = json_detail::join(path, "battery_remaining_pct");
+    out.battery_remaining_pct(json_detail::get_float<float>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "battery_time_remaining_s");
+    const auto p = json_detail::join(path, "battery_time_remaining_s");
+    out.battery_time_remaining_s(json_detail::get_float<float>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "gnss_fix");
+    const auto p = json_detail::join(path, "gnss_fix");
+    GnssFix e{};
+    from_json_value(v, e, p);
+    out.gnss_fix(e);
+  }
+  {
+    const auto& v = json_detail::member(j, path, "gnss_satellites");
+    const auto p = json_detail::join(path, "gnss_satellites");
+    out.gnss_satellites(json_detail::get_integer<uint8_t>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "gnss_hdop");
+    const auto p = json_detail::join(path, "gnss_hdop");
+    out.gnss_hdop(json_detail::get_float<float>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "sensors_present");
+    const auto p = json_detail::join(path, "sensors_present");
+    out.sensors_present(json_detail::get_integer<uint32_t>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "sensors_enabled");
+    const auto p = json_detail::join(path, "sensors_enabled");
+    out.sensors_enabled(json_detail::get_integer<uint32_t>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "sensors_healthy");
+    const auto p = json_detail::join(path, "sensors_healthy");
+    out.sensors_healthy(json_detail::get_integer<uint32_t>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "estimator_ok");
+    const auto p = json_detail::join(path, "estimator_ok");
+    out.estimator_ok(json_detail::get_bool(v, p));
+  }
+}
+
 inline nlohmann::json to_json_value(const LinkStatus& v) {
   nlohmann::json j = nlohmann::json::object();
   j["vehicle_id"] = nlohmann::json(v.vehicle_id());
@@ -178,6 +770,409 @@ inline nlohmann::json to_json_value(const LinkStatus& v) {
   j["last_rx_age_ms"] = nlohmann::json(v.last_rx_age_ms());
   j["signing"] = to_json_value(v.signing());
   return j;
+}
+
+inline void from_json_value(const nlohmann::json& j, LinkStatus& out,
+                            std::string_view path = {}) {
+  json_detail::require_object(j, path, {"vehicle_id", "header", "state", "state_since_ns", "rx_rate_hz", "loss_pct", "last_rx_age_ms", "signing"});
+  {
+    const auto& v = json_detail::member(j, path, "vehicle_id");
+    const auto p = json_detail::join(path, "vehicle_id");
+    out.vehicle_id(json_detail::get_integer<uint32_t>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "header");
+    const auto p = json_detail::join(path, "header");
+    from_json_value(v, out.header(), p);
+  }
+  {
+    const auto& v = json_detail::member(j, path, "state");
+    const auto p = json_detail::join(path, "state");
+    LinkState e{};
+    from_json_value(v, e, p);
+    out.state(e);
+  }
+  {
+    const auto& v = json_detail::member(j, path, "state_since_ns");
+    const auto p = json_detail::join(path, "state_since_ns");
+    out.state_since_ns(json_detail::get_integer<uint64_t>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "rx_rate_hz");
+    const auto p = json_detail::join(path, "rx_rate_hz");
+    out.rx_rate_hz(json_detail::get_float<float>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "loss_pct");
+    const auto p = json_detail::join(path, "loss_pct");
+    out.loss_pct(json_detail::get_float<float>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "last_rx_age_ms");
+    const auto p = json_detail::join(path, "last_rx_age_ms");
+    out.last_rx_age_ms(json_detail::get_integer<uint32_t>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "signing");
+    const auto p = json_detail::join(path, "signing");
+    SigningState e{};
+    from_json_value(v, e, p);
+    out.signing(e);
+  }
+}
+
+inline nlohmann::json to_json_value(const Waypoint& v) {
+  nlohmann::json j = nlohmann::json::object();
+  j["lat_deg"] = std::isnan(v.lat_deg()) ? nlohmann::json(nullptr) : nlohmann::json(v.lat_deg());
+  j["lon_deg"] = std::isnan(v.lon_deg()) ? nlohmann::json(nullptr) : nlohmann::json(v.lon_deg());
+  j["alt_rel_home_m"] = std::isnan(v.alt_rel_home_m()) ? nlohmann::json(nullptr) : nlohmann::json(v.alt_rel_home_m());
+  j["hold_s"] = std::isnan(v.hold_s()) ? nlohmann::json(nullptr) : nlohmann::json(v.hold_s());
+  j["acceptance_radius_m"] = std::isnan(v.acceptance_radius_m()) ? nlohmann::json(nullptr) : nlohmann::json(v.acceptance_radius_m());
+  return j;
+}
+
+inline void from_json_value(const nlohmann::json& j, Waypoint& out,
+                            std::string_view path = {}) {
+  json_detail::require_object(j, path, {"lat_deg", "lon_deg", "alt_rel_home_m", "hold_s", "acceptance_radius_m"});
+  {
+    const auto& v = json_detail::member(j, path, "lat_deg");
+    const auto p = json_detail::join(path, "lat_deg");
+    out.lat_deg(json_detail::get_float<double>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "lon_deg");
+    const auto p = json_detail::join(path, "lon_deg");
+    out.lon_deg(json_detail::get_float<double>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "alt_rel_home_m");
+    const auto p = json_detail::join(path, "alt_rel_home_m");
+    out.alt_rel_home_m(json_detail::get_float<float>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "hold_s");
+    const auto p = json_detail::join(path, "hold_s");
+    out.hold_s(json_detail::get_float<float>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "acceptance_radius_m");
+    const auto p = json_detail::join(path, "acceptance_radius_m");
+    out.acceptance_radius_m(json_detail::get_float<float>(v, p));
+  }
+}
+
+inline nlohmann::json to_json_value(const CommandParams& v) {
+  nlohmann::json j = nlohmann::json::object();
+  j["lat_deg"] = std::isnan(v.lat_deg()) ? nlohmann::json(nullptr) : nlohmann::json(v.lat_deg());
+  j["lon_deg"] = std::isnan(v.lon_deg()) ? nlohmann::json(nullptr) : nlohmann::json(v.lon_deg());
+  j["alt_rel_home_m"] = std::isnan(v.alt_rel_home_m()) ? nlohmann::json(nullptr) : nlohmann::json(v.alt_rel_home_m());
+  j["ground_speed_mps"] = std::isnan(v.ground_speed_mps()) ? nlohmann::json(nullptr) : nlohmann::json(v.ground_speed_mps());
+  j["heading_deg"] = std::isnan(v.heading_deg()) ? nlohmann::json(nullptr) : nlohmann::json(v.heading_deg());
+  j["gimbal_pitch_deg"] = std::isnan(v.gimbal_pitch_deg()) ? nlohmann::json(nullptr) : nlohmann::json(v.gimbal_pitch_deg());
+  j["gimbal_yaw_deg"] = std::isnan(v.gimbal_yaw_deg()) ? nlohmann::json(nullptr) : nlohmann::json(v.gimbal_yaw_deg());
+  j["zoom_level"] = std::isnan(v.zoom_level()) ? nlohmann::json(nullptr) : nlohmann::json(v.zoom_level());
+  return j;
+}
+
+inline void from_json_value(const nlohmann::json& j, CommandParams& out,
+                            std::string_view path = {}) {
+  json_detail::require_object(j, path, {"lat_deg", "lon_deg", "alt_rel_home_m", "ground_speed_mps", "heading_deg", "gimbal_pitch_deg", "gimbal_yaw_deg", "zoom_level"});
+  {
+    const auto& v = json_detail::member(j, path, "lat_deg");
+    const auto p = json_detail::join(path, "lat_deg");
+    out.lat_deg(json_detail::get_float<double>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "lon_deg");
+    const auto p = json_detail::join(path, "lon_deg");
+    out.lon_deg(json_detail::get_float<double>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "alt_rel_home_m");
+    const auto p = json_detail::join(path, "alt_rel_home_m");
+    out.alt_rel_home_m(json_detail::get_float<float>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "ground_speed_mps");
+    const auto p = json_detail::join(path, "ground_speed_mps");
+    out.ground_speed_mps(json_detail::get_float<float>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "heading_deg");
+    const auto p = json_detail::join(path, "heading_deg");
+    out.heading_deg(json_detail::get_float<float>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "gimbal_pitch_deg");
+    const auto p = json_detail::join(path, "gimbal_pitch_deg");
+    out.gimbal_pitch_deg(json_detail::get_float<float>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "gimbal_yaw_deg");
+    const auto p = json_detail::join(path, "gimbal_yaw_deg");
+    out.gimbal_yaw_deg(json_detail::get_float<float>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "zoom_level");
+    const auto p = json_detail::join(path, "zoom_level");
+    out.zoom_level(json_detail::get_float<float>(v, p));
+  }
+}
+
+inline nlohmann::json to_json_value(const CommandRequest& v) {
+  nlohmann::json j = nlohmann::json::object();
+  j["vehicle_id"] = nlohmann::json(v.vehicle_id());
+  j["issuer_id"] = nlohmann::json(v.issuer_id());
+  j["command_id"] = std::to_string(v.command_id());
+  j["header"] = to_json_value(v.header());
+  j["kind"] = to_json_value(v.kind());
+  j["params"] = to_json_value(v.params());
+  j["waypoints"] = nlohmann::json::array();
+  for (const auto& e : v.waypoints()) j["waypoints"].push_back(to_json_value(e));
+  j["deadline_ms"] = nlohmann::json(v.deadline_ms());
+  j["confirm_token"] = std::to_string(v.confirm_token());
+  j["operator_name"] = nlohmann::json(v.operator_name());
+  return j;
+}
+
+inline void from_json_value(const nlohmann::json& j, CommandRequest& out,
+                            std::string_view path = {}) {
+  json_detail::require_object(j, path, {"vehicle_id", "issuer_id", "command_id", "header", "kind", "params", "waypoints", "deadline_ms", "confirm_token", "operator_name"});
+  {
+    const auto& v = json_detail::member(j, path, "vehicle_id");
+    const auto p = json_detail::join(path, "vehicle_id");
+    out.vehicle_id(json_detail::get_integer<uint32_t>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "issuer_id");
+    const auto p = json_detail::join(path, "issuer_id");
+    out.issuer_id(json_detail::get_integer<uint32_t>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "command_id");
+    const auto p = json_detail::join(path, "command_id");
+    out.command_id(json_detail::get_id(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "header");
+    const auto p = json_detail::join(path, "header");
+    from_json_value(v, out.header(), p);
+  }
+  {
+    const auto& v = json_detail::member(j, path, "kind");
+    const auto p = json_detail::join(path, "kind");
+    CommandKind e{};
+    from_json_value(v, e, p);
+    out.kind(e);
+  }
+  {
+    const auto& v = json_detail::member(j, path, "params");
+    const auto p = json_detail::join(path, "params");
+    from_json_value(v, out.params(), p);
+  }
+  {
+    const auto& v = json_detail::member(j, path, "waypoints");
+    const auto p = json_detail::join(path, "waypoints");
+    if (!v.is_array()) json_detail::fail(p, "expected an array");
+    if (v.size() > 500) json_detail::fail(p, "more than 500 elements");
+    std::vector<Waypoint> items(v.size());
+    for (std::size_t i = 0; i < v.size(); ++i)
+      from_json_value(v[i], items[i], json_detail::index(p, i));
+    out.waypoints(std::move(items));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "deadline_ms");
+    const auto p = json_detail::join(path, "deadline_ms");
+    out.deadline_ms(json_detail::get_integer<uint32_t>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "confirm_token");
+    const auto p = json_detail::join(path, "confirm_token");
+    out.confirm_token(json_detail::get_id(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "operator_name");
+    const auto p = json_detail::join(path, "operator_name");
+    out.operator_name(json_detail::get_string(v, p, 64));
+  }
+}
+
+inline nlohmann::json to_json_value(const CommandStatus& v) {
+  nlohmann::json j = nlohmann::json::object();
+  j["vehicle_id"] = nlohmann::json(v.vehicle_id());
+  j["issuer_id"] = nlohmann::json(v.issuer_id());
+  j["command_id"] = std::to_string(v.command_id());
+  j["header"] = to_json_value(v.header());
+  j["kind"] = to_json_value(v.kind());
+  j["state"] = to_json_value(v.state());
+  j["mav_result"] = nlohmann::json(v.mav_result());
+  j["mission_result"] = nlohmann::json(v.mission_result());
+  j["progress_pct"] = std::isnan(v.progress_pct()) ? nlohmann::json(nullptr) : nlohmann::json(v.progress_pct());
+  j["detail"] = nlohmann::json(v.detail());
+  j["t_received_ns"] = nlohmann::json(v.t_received_ns());
+  j["t_sent_ns"] = nlohmann::json(v.t_sent_ns());
+  j["t_in_progress_ns"] = nlohmann::json(v.t_in_progress_ns());
+  j["t_terminal_ns"] = nlohmann::json(v.t_terminal_ns());
+  j["attempts"] = nlohmann::json(v.attempts());
+  return j;
+}
+
+inline void from_json_value(const nlohmann::json& j, CommandStatus& out,
+                            std::string_view path = {}) {
+  json_detail::require_object(j, path, {"vehicle_id", "issuer_id", "command_id", "header", "kind", "state", "mav_result", "mission_result", "progress_pct", "detail", "t_received_ns", "t_sent_ns", "t_in_progress_ns", "t_terminal_ns", "attempts"});
+  {
+    const auto& v = json_detail::member(j, path, "vehicle_id");
+    const auto p = json_detail::join(path, "vehicle_id");
+    out.vehicle_id(json_detail::get_integer<uint32_t>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "issuer_id");
+    const auto p = json_detail::join(path, "issuer_id");
+    out.issuer_id(json_detail::get_integer<uint32_t>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "command_id");
+    const auto p = json_detail::join(path, "command_id");
+    out.command_id(json_detail::get_id(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "header");
+    const auto p = json_detail::join(path, "header");
+    from_json_value(v, out.header(), p);
+  }
+  {
+    const auto& v = json_detail::member(j, path, "kind");
+    const auto p = json_detail::join(path, "kind");
+    CommandKind e{};
+    from_json_value(v, e, p);
+    out.kind(e);
+  }
+  {
+    const auto& v = json_detail::member(j, path, "state");
+    const auto p = json_detail::join(path, "state");
+    CommandState e{};
+    from_json_value(v, e, p);
+    out.state(e);
+  }
+  {
+    const auto& v = json_detail::member(j, path, "mav_result");
+    const auto p = json_detail::join(path, "mav_result");
+    out.mav_result(json_detail::get_integer<uint8_t>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "mission_result");
+    const auto p = json_detail::join(path, "mission_result");
+    out.mission_result(json_detail::get_integer<uint8_t>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "progress_pct");
+    const auto p = json_detail::join(path, "progress_pct");
+    out.progress_pct(json_detail::get_float<float>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "detail");
+    const auto p = json_detail::join(path, "detail");
+    out.detail(json_detail::get_string(v, p, 128));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "t_received_ns");
+    const auto p = json_detail::join(path, "t_received_ns");
+    out.t_received_ns(json_detail::get_integer<uint64_t>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "t_sent_ns");
+    const auto p = json_detail::join(path, "t_sent_ns");
+    out.t_sent_ns(json_detail::get_integer<uint64_t>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "t_in_progress_ns");
+    const auto p = json_detail::join(path, "t_in_progress_ns");
+    out.t_in_progress_ns(json_detail::get_integer<uint64_t>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "t_terminal_ns");
+    const auto p = json_detail::join(path, "t_terminal_ns");
+    out.t_terminal_ns(json_detail::get_integer<uint64_t>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "attempts");
+    const auto p = json_detail::join(path, "attempts");
+    out.attempts(json_detail::get_integer<uint8_t>(v, p));
+  }
+}
+
+inline nlohmann::json to_json_value(const MissionState& v) {
+  nlohmann::json j = nlohmann::json::object();
+  j["vehicle_id"] = nlohmann::json(v.vehicle_id());
+  j["header"] = to_json_value(v.header());
+  j["item_count"] = nlohmann::json(v.item_count());
+  j["current_item"] = nlohmann::json(v.current_item());
+  j["progress_pct"] = std::isnan(v.progress_pct()) ? nlohmann::json(nullptr) : nlohmann::json(v.progress_pct());
+  j["run_state"] = to_json_value(v.run_state());
+  j["mission_id"] = nlohmann::json(v.mission_id());
+  j["mission_hash"] = std::to_string(v.mission_hash());
+  j["last_upload_state"] = to_json_value(v.last_upload_state());
+  j["last_upload_command_id"] = std::to_string(v.last_upload_command_id());
+  return j;
+}
+
+inline void from_json_value(const nlohmann::json& j, MissionState& out,
+                            std::string_view path = {}) {
+  json_detail::require_object(j, path, {"vehicle_id", "header", "item_count", "current_item", "progress_pct", "run_state", "mission_id", "mission_hash", "last_upload_state", "last_upload_command_id"});
+  {
+    const auto& v = json_detail::member(j, path, "vehicle_id");
+    const auto p = json_detail::join(path, "vehicle_id");
+    out.vehicle_id(json_detail::get_integer<uint32_t>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "header");
+    const auto p = json_detail::join(path, "header");
+    from_json_value(v, out.header(), p);
+  }
+  {
+    const auto& v = json_detail::member(j, path, "item_count");
+    const auto p = json_detail::join(path, "item_count");
+    out.item_count(json_detail::get_integer<uint16_t>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "current_item");
+    const auto p = json_detail::join(path, "current_item");
+    out.current_item(json_detail::get_integer<uint16_t>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "progress_pct");
+    const auto p = json_detail::join(path, "progress_pct");
+    out.progress_pct(json_detail::get_float<float>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "run_state");
+    const auto p = json_detail::join(path, "run_state");
+    MissionRunState e{};
+    from_json_value(v, e, p);
+    out.run_state(e);
+  }
+  {
+    const auto& v = json_detail::member(j, path, "mission_id");
+    const auto p = json_detail::join(path, "mission_id");
+    out.mission_id(json_detail::get_integer<uint32_t>(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "mission_hash");
+    const auto p = json_detail::join(path, "mission_hash");
+    out.mission_hash(json_detail::get_id(v, p));
+  }
+  {
+    const auto& v = json_detail::member(j, path, "last_upload_state");
+    const auto p = json_detail::join(path, "last_upload_state");
+    CommandState e{};
+    from_json_value(v, e, p);
+    out.last_upload_state(e);
+  }
+  {
+    const auto& v = json_detail::member(j, path, "last_upload_command_id");
+    const auto p = json_detail::join(path, "last_upload_command_id");
+    out.last_upload_command_id(json_detail::get_id(v, p));
+  }
 }
 
 }  // namespace skyrelay::v1

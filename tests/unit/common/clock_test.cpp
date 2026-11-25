@@ -14,6 +14,6 @@ TEST(FakeClock, AdvanceMovesBothClocks) {
   EXPECT_EQ(c.realtime_ns(), 1'000 + 5'000'000u);
 }
 
-TEST(Version, ContractVersionIsPreview) {
-  EXPECT_EQ(skyrelay::kContractVersion, "1.0.0-preview.1");
+TEST(Version, ContractVersionIsPreview2) {
+  EXPECT_EQ(skyrelay::kContractVersion, "1.0.0-preview.2");
 }

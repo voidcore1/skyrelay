@@ -9,7 +9,7 @@ export function fmtMs(v: number | null | undefined): string {
   return Math.abs(v) < 10 ? v.toFixed(1) : Math.round(v).toString()
 }
 
-export function fmtAutopilot(a: AutopilotKind | undefined): string {
+export function fmtAutopilot(a: AutopilotKind | null | undefined): string {
   switch (a) {
     case 'AUTOPILOT_PX4':
       return 'PX4'
@@ -22,8 +22,8 @@ export function fmtAutopilot(a: AutopilotKind | undefined): string {
   }
 }
 
-export function fmtMode(mode: FlightMode | undefined, raw: string | undefined): string {
-  if (mode === undefined) return DASH
+export function fmtMode(mode: FlightMode | null | undefined, raw: string | undefined): string {
+  if (mode === undefined || mode === null) return DASH
   if (mode === 'FLIGHT_MODE_UNKNOWN') return raw ? raw.toUpperCase() : DASH
   return mode.slice('FLIGHT_MODE_'.length).replace('_', ' ')
 }

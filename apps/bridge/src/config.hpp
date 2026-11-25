@@ -60,8 +60,10 @@ inline constexpr size_t kMaxVehicles = 16;
 //
 // A vehicle's sysid (1-255, not gcs_sysid) is optional. Unknown keys, values
 // out of range, recovering_lost_gap_ms below lost_gap_ms, duplicate vehicle
-// ids, listen ports or out peers, and more than kMaxVehicles vehicles throw
-// ConfigError.
+// ids, listen ports, out or TCP peers or serial devices, and more than
+// kMaxVehicles vehicles throw ConfigError. A link is udp://ip:port,
+// udpout://ip:port, tcp://ip:port or serial:///dev/path:baud; hosts are IP
+// literals.
 BridgeConfig parse_config(std::string_view yaml);
 // As parse_config; an unreadable file is a ConfigError too. Messages do not
 // repeat the path.

@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <dds/dds.hpp>
 #include <string>
+#include <string_view>
 
 namespace skyrelay::dds {
 
@@ -61,5 +62,13 @@ std::string exposure_summary(const DomainConfig&);
                                      const DomainConfig&);
 ::dds::sub::Subscriber make_subscriber(::dds::domain::DomainParticipant&,
                                        const DomainConfig&);
+
+// The same in an explicit partition, e.g. command_partition(fleet).
+::dds::pub::Publisher make_publisher(::dds::domain::DomainParticipant&,
+                                     const DomainConfig&,
+                                     std::string_view partition);
+::dds::sub::Subscriber make_subscriber(::dds::domain::DomainParticipant&,
+                                       const DomainConfig&,
+                                       std::string_view partition);
 
 }  // namespace skyrelay::dds

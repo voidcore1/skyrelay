@@ -24,6 +24,21 @@ mavlink_message_t Packer::command_long(uint8_t target_sys, uint8_t target_comp,
   return msg;
 }
 
+mavlink_message_t Packer::command(const SendRequest& req) {
+  const CommandSpec& s = req.spec;
+  if (s.encoding == CommandEncoding::Long) {
+    return command_long(s.target_sys, s.target_comp, s.command, s.params,
+                        req.confirmation);
+  }
+  const auto& p = s.params;
+  mavlink_message_t msg{};
+  mavlink_msg_command_int_pack_chan(sysid_, compid_, ch_, &msg, s.target_sys,
+                                    s.target_comp, s.frame, s.command,
+                                    /*current=*/0, /*autocontinue=*/0, p[0],
+                                    p[1], p[2], p[3], s.x, s.y, p[6]);
+  return msg;
+}
+
 std::vector<uint8_t> Packer::serialize(const mavlink_message_t& msg) {
   std::vector<uint8_t> buf(MAVLINK_MAX_PACKET_LEN);
   const uint16_t n = mavlink_msg_to_send_buffer(buf.data(), &msg);

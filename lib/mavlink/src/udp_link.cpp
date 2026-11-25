@@ -40,13 +40,19 @@ void UdpLink::arm_receive(const std::shared_ptr<State>& st) {
         if (!st->alive || ec == asio::error::operation_aborted) {
           return;
         }
-        if (!ec) {
+        if (ec) {
+          ++st->stats.rx_errors;
+        } else {
           ++st->stats.rx_datagrams;
-          if (!st->fixed_peer) {
-            st->peer = st->rx_from;
-          }
-          if (st->on_rx) {
-            st->on_rx(std::span<const uint8_t>(st->rx_buf.data(), n));
+          // Moved out while it runs, so a handler that destroys the link does
+          // not destroy itself mid-call.
+          if (auto cb = std::move(st->on_rx)) {
+            const bool accepted =
+                cb(std::span<const uint8_t>(st->rx_buf.data(), n));
+            if (st->alive) {
+              st->on_rx = std::move(cb);
+              if (accepted && !st->fixed_peer) st->peer = st->rx_from;
+            }
           }
           if (!st->alive) {
             return;

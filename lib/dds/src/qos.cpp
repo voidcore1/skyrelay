@@ -8,6 +8,14 @@
 namespace skyrelay::dds {
 namespace {
 
+// Lifespan is a writer and topic policy; a reader has none (the writer's
+// lifespan travels with each sample).
+template <class Qos>
+void set_lifespan(Qos& q, ::dds::core::Duration d) {
+  q << ::dds::core::policy::Lifespan(d);
+}
+inline void set_lifespan(::dds::sub::qos::DataReaderQos&, ::dds::core::Duration) {}
+
 // Applies a profile to any QoS object that carries these policies.
 template <class Qos>
 Qos build(Profile p) {
@@ -32,6 +40,20 @@ Qos build(Profile p) {
     case Profile::StateLatched:
       q << ::dds::core::policy::Durability::TransientLocal();
       break;
+    case Profile::Command:
+      // Every request is kept, up to 64 per instance, and goes stale after 5 s.
+      q << ::dds::core::policy::History::KeepAll()
+        << ::dds::core::policy::ResourceLimits(::dds::core::LENGTH_UNLIMITED,
+                                               ::dds::core::LENGTH_UNLIMITED, 64)
+        << ::dds::core::policy::Durability::Volatile();
+      set_lifespan(q, ::dds::core::Duration::from_secs(5));
+      break;
+    case Profile::CommandStatus:
+      // KEEP_LAST 1 per instance: the latest state of each command, replayed
+      // to a late joiner for a minute.
+      q << ::dds::core::policy::Durability::TransientLocal();
+      set_lifespan(q, ::dds::core::Duration::from_secs(60));
+      break;
   }
   return q;
 }
@@ -51,13 +73,15 @@ Qos build(Profile p) {
 }
 
 Profile profile_for(std::string_view topic) {
-  if (topic == kTopicVehicleInfo || topic == kTopicLinkStatus) {
+  if (topic == kTopicVehicleInfo || topic == kTopicLinkStatus || topic == kTopicMissionState) {
     return Profile::StateLatched;
   }
   if (topic == kTopicPose) return Profile::TelemetryFast;
   if (topic == kTopicVehicleState || topic == kTopicHealth) {
     return Profile::TelemetryReliable;
   }
+  if (topic == kTopicCommandRequest) return Profile::Command;
+  if (topic == kTopicCommandStatus) return Profile::CommandStatus;
   throw std::invalid_argument("no QoS profile for topic " + std::string(topic));
 }
 

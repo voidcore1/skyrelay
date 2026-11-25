@@ -11,16 +11,14 @@
 
 #include <boost/asio.hpp>
 
-#include "skyrelay/mav/link_uri.hpp"
+#include "skyrelay/mav/link.hpp"
 
 namespace skyrelay::mav {
 
 // Datagram transport for one vehicle. All I/O is asynchronous on the
 // io_context passed in, so the constructor and send() never block.
-class UdpLink {
+class UdpLink final : public Link {
  public:
-  using RxHandler = std::function<void(std::span<const uint8_t>)>;
-
   // The largest UDP payload over IPv6 without jumbograms (IPv4 allows 65507).
   static constexpr std::size_t kMaxDatagram = 65527;
 
@@ -28,21 +26,30 @@ class UdpLink {
     uint64_t rx_datagrams = 0;
     uint64_t tx_datagrams = 0;
     uint64_t tx_dropped_no_peer = 0;
+    uint64_t rx_errors = 0;
   };
 
-  // UdpListen binds host:port and replies to whoever sent last. UdpOut binds
+  // UdpListen binds host:port and replies to the sender of the last datagram
+  // the handler accepted (returned true for). UdpOut binds
   // an ephemeral port and sends to host:port. A LinkUri built by hand may use
   // port 0 for a listen link; local_port() then reports what was bound.
   // on_rx gets each datagram whole and must not throw: an exception leaves
-  // through io_context::run() and the link stops receiving.
+  // through io_context::run() and the link stops receiving. A listen link
+  // without an on_rx never learns a peer.
   UdpLink(boost::asio::io_context& io, const LinkUri& uri, RxHandler on_rx);
-  ~UdpLink();
+  ~UdpLink() override;
   UdpLink(const UdpLink&) = delete;
   UdpLink& operator=(const UdpLink&) = delete;
 
-  void send(std::span<const uint8_t> bytes);
+  void send(std::span<const uint8_t> bytes) override;
   const Stats& stats() const { return st_->stats; }
-  uint16_t local_port() const { return st_->socket.local_endpoint().port(); }
+  LinkCounters counters() const override {
+    return LinkCounters{st_->stats.rx_datagrams, st_->stats.tx_datagrams,
+                        st_->stats.tx_dropped_no_peer, st_->stats.rx_errors, 0};
+  }
+  uint16_t local_port() const override {
+    return st_->socket.local_endpoint().port();
+  }
 
  private:
   // Everything an in-flight handler touches lives here and is kept alive by
