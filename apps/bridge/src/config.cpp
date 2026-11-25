@@ -111,6 +111,14 @@ void read_link(const YAML::Node& n, mav::LinkThresholds& t) {
   if (t.lost_gap <= t.degraded_gap) {
     fail("link.lost_gap_ms", "must be greater than link.degraded_gap_ms");
   }
+  // A recovering link only has the 1 Hz heartbeat until its setup is done, so
+  // it must not be given up sooner than a connected one.
+  if (t.recovering_lost_gap < t.lost_gap) {
+    fail("link.recovering_lost_gap_ms",
+         "must be at least link.lost_gap_ms (" +
+             std::to_string(t.lost_gap.count()) + "), got " +
+             std::to_string(t.recovering_lost_gap.count()));
+  }
 }
 
 void read_rates(const YAML::Node& n, vehicle::Rates& r) {
@@ -125,7 +133,8 @@ void read_rates(const YAML::Node& n, vehicle::Rates& r) {
   }
 }
 
-std::vector<VehicleConfig> read_vehicles(const YAML::Node& n) {
+std::vector<VehicleConfig> read_vehicles(const YAML::Node& n,
+                                         uint8_t gcs_sysid) {
   if (!n) fail("vehicles", "is required");
   if (!n.IsSequence() || n.size() == 0) {
     fail("vehicles", "must be a non-empty list");
@@ -146,7 +155,7 @@ std::vector<VehicleConfig> read_vehicles(const YAML::Node& n) {
     const YAML::Node v = n[i];
     const std::string path = "vehicles[" + std::to_string(i) + "]";
     if (!v.IsMap()) fail(path, "must be a mapping");
-    check_keys(v, path, {"id", "name", "link"});
+    check_keys(v, path, {"id", "name", "link", "sysid"});
 
     VehicleConfig vc;
     if (!v["id"]) fail(path + ".id", "is required");
@@ -159,6 +168,13 @@ std::vector<VehicleConfig> read_vehicles(const YAML::Node& n) {
     }
     vc.name = v["name"] ? text(v["name"], path + ".name")
                         : "vehicle-" + std::to_string(vc.id);
+    if (v["sysid"]) {
+      vc.sysid = static_cast<uint8_t>(integer(v["sysid"], path + ".sysid", 1, 255));
+      if (*vc.sysid == gcs_sysid) {
+        fail(path + ".sysid", "must differ from gcs_sysid (" +
+                                  std::to_string(gcs_sysid) + ")");
+      }
+    }
 
     if (!v["link"]) fail(path + ".link", "is required");
     const std::string uri = text(v["link"], path + ".link");
@@ -175,8 +191,11 @@ std::vector<VehicleConfig> read_vehicles(const YAML::Node& n) {
                   .first->second;
     }
     if (owner != i) {
-      fail(path + ".link", "port " + std::to_string(vc.link.port) +
-                               " is already used by vehicles[" +
+      const std::string what =
+          vc.link.scheme == mav::LinkScheme::UdpListen
+              ? "local port " + std::to_string(vc.link.port)
+              : "remote " + vc.link.host + ":" + std::to_string(vc.link.port);
+      fail(path + ".link", what + " is already used by vehicles[" +
                                std::to_string(owner) + "]");
     }
     out.push_back(std::move(vc));
@@ -199,7 +218,7 @@ BridgeConfig parse_config(std::string_view yaml) {
     }
     read_link(section(root, "link"), c.link);
     read_rates(section(root, "rates"), c.rates);
-    c.vehicles = read_vehicles(root["vehicles"]);
+    c.vehicles = read_vehicles(root["vehicles"], c.gcs_sysid);
   } catch (const YAML::Exception& e) {
     throw ConfigError(std::string("config: ") + e.what());
   }

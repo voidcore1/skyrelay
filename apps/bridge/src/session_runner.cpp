@@ -95,7 +95,13 @@ SessionRunner::SessionRunner(const VehicleConfig& vehicle,
       timer_(io_) {
   link_ = std::make_unique<mav::UdpLink>(
       io_, vehicle.link, [this](std::span<const uint8_t> bytes) {
-        if (!stopping_) session_->on_bytes(bytes);
+        if (stopping_) return;
+        // Caught here, so the link always goes on to its next receive.
+        try {
+          session_->on_bytes(bytes);
+        } catch (const std::exception& e) {
+          log_handler_error("receive", e);
+        }
       });
   transport_.link = link_.get();
   port_ = link_->local_port();
@@ -130,15 +136,25 @@ void SessionRunner::stop() {
 }
 
 void SessionRunner::run() {
-  // A throwing handler must not take the vehicle down for good: log it and
-  // keep serving.
-  for (;;) {
-    try {
-      io_.run();
-      return;
-    } catch (const std::exception& e) {
-      spdlog::error("{}: {}", label_, e.what());
-    }
+  // The receive and timer handlers catch their own exceptions, so both keep
+  // re-arming; nothing else on this io_context is expected to throw. If
+  // something does, the vehicle is no longer served, and the log says so.
+  try {
+    io_.run();
+  } catch (const std::exception& e) {
+    spdlog::error("{}: stopped serving this vehicle: {}", label_, e.what());
+  }
+}
+
+void SessionRunner::log_handler_error(const char* where,
+                                      const std::exception& e) {
+  // Logged at the first error and each time the count doubles, so a handler
+  // that keeps failing is visible without flooding the log.
+  ++handler_errors_;
+  if (handler_errors_ >= 2 * handler_errors_logged_) {
+    spdlog::error("{}: {} handler failed ({} so far): {}", label_, where,
+                  handler_errors_, e.what());
+    handler_errors_logged_ = handler_errors_;
   }
 }
 
@@ -151,7 +167,12 @@ void SessionRunner::arm_timer() {
 }
 
 void SessionRunner::on_timer() {
-  session_->tick();
+  // Caught here, so the timer is always armed again below.
+  try {
+    session_->tick();
+  } catch (const std::exception& e) {
+    log_handler_error("tick", e);
+  }
 
   // Another system on this vehicle's port. Logged at the first frame and each
   // time the count doubles, so it is visible without flooding the log.

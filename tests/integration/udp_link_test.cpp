@@ -71,3 +71,20 @@ TEST(UdpLink, DestroyBeforeDrainIsSafe) {
   io.run_for(std::chrono::milliseconds(50));
   EXPECT_EQ(rx_calls, 0);
 }
+
+// A datagram can pack many MAVLink frames; one far above a single frame's
+// size still arrives in one piece.
+TEST(UdpLink, LargeDatagramArrivesWhole) {
+  boost::asio::io_context io;
+  std::vector<uint8_t> got;
+  UdpLink a(io, LinkUri{LinkScheme::UdpListen, "127.0.0.1", 0},
+            [&](std::span<const uint8_t> d) { got.assign(d.begin(), d.end()); });
+  UdpLink b(io, LinkUri{LinkScheme::UdpOut, "127.0.0.1", a.local_port()}, nullptr);
+
+  std::vector<uint8_t> big(60000);
+  for (size_t i = 0; i < big.size(); ++i) big[i] = static_cast<uint8_t>(i % 251);
+  b.send(big);
+  ASSERT_TRUE(run_until(io, [&] { return !got.empty(); }));
+  EXPECT_EQ(got.size(), big.size());
+  EXPECT_EQ(got, big);
+}

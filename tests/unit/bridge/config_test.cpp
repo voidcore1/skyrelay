@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <optional>
 #include <string>
 
 #include "config.hpp"
@@ -53,6 +54,7 @@ TEST(Config, ParsesExample) {
     EXPECT_EQ(c.vehicles[i].name, "px4-" + std::to_string(i));
     EXPECT_EQ(c.vehicles[i].link.scheme, mav::LinkScheme::UdpListen);
     EXPECT_EQ(c.vehicles[i].link.port, 14540 + i);
+    EXPECT_EQ(c.vehicles[i].sysid, static_cast<uint8_t>(i + 1));
   }
 }
 
@@ -62,10 +64,58 @@ TEST(Config, RejectsDuplicatePortAndUnknownKey) {
       "  - { id: 1, link: \"udp://0.0.0.0:14540\" }\n"
       "  - { id: 2, link: \"udp://0.0.0.0:14540\" }\n");
   EXPECT_NE(dup_port.find("vehicles[1].link"), std::string::npos) << dup_port;
+  EXPECT_NE(dup_port.find("local port 14540"), std::string::npos) << dup_port;
 
   const std::string unknown =
       error_of("rats: { pose_hz: 20 }\n" + vehicles_yaml(1));
   EXPECT_NE(unknown.find("rats"), std::string::npos) << unknown;
+}
+
+TEST(Config, DuplicateOutPeerNamesTheRemote) {
+  const std::string e = error_of(
+      "vehicles:\n"
+      "  - { id: 1, link: \"udpout://10.0.0.5:14550\" }\n"
+      "  - { id: 2, link: \"udpout://10.0.0.5:14550\" }\n");
+  EXPECT_NE(e.find("vehicles[1].link"), std::string::npos) << e;
+  EXPECT_NE(e.find("remote 10.0.0.5:14550"), std::string::npos) << e;
+  EXPECT_EQ(e.find("local port"), std::string::npos) << e;
+  // Same port on another host is a different peer.
+  EXPECT_EQ(error_of("vehicles:\n"
+                     "  - { id: 1, link: \"udpout://10.0.0.5:14550\" }\n"
+                     "  - { id: 2, link: \"udpout://10.0.0.6:14550\" }\n"),
+            "");
+}
+
+TEST(Config, VehicleSysid) {
+  EXPECT_FALSE(parse_config(vehicles_yaml(1)).vehicles[0].sysid.has_value());
+  const BridgeConfig c = parse_config(
+      "vehicles:\n  - { id: 1, link: \"udp://0.0.0.0:14540\", sysid: 42 }\n");
+  EXPECT_EQ(c.vehicles[0].sysid, std::optional<uint8_t>(42));
+
+  for (const char* bad : {"0", "256", "-1", "x"}) {
+    const std::string e = error_of(
+        std::string("vehicles:\n  - { id: 1, link: \"udp://0.0.0.0:14540\", sysid: ") +
+        bad + " }\n");
+    EXPECT_NE(e.find("vehicles[0].sysid"), std::string::npos) << bad << ": " << e;
+  }
+  const std::string gcs = error_of(
+      "gcs_sysid: 200\nvehicles:\n"
+      "  - { id: 1, link: \"udp://0.0.0.0:14540\", sysid: 200 }\n");
+  EXPECT_NE(gcs.find("vehicles[0].sysid"), std::string::npos) << gcs;
+  EXPECT_NE(gcs.find("gcs_sysid"), std::string::npos) << gcs;
+}
+
+TEST(Config, RecoveringLostGapNotBelowLostGap) {
+  const std::string e = error_of(
+      "link: { lost_gap_ms: 3000, recovering_lost_gap_ms: 2000 }\n" + vehicles_yaml(1));
+  EXPECT_NE(e.find("link.recovering_lost_gap_ms"), std::string::npos) << e;
+  // The default of 2500 ms is checked too.
+  const std::string d = error_of("link: { lost_gap_ms: 3000 }\n" + vehicles_yaml(1));
+  EXPECT_NE(d.find("link.recovering_lost_gap_ms"), std::string::npos) << d;
+  // Equal is allowed.
+  EXPECT_EQ(error_of("link: { lost_gap_ms: 3000, recovering_lost_gap_ms: 3000 }\n" +
+                     vehicles_yaml(1)),
+            "");
 }
 
 TEST(Config, RejectsDuplicateId) {

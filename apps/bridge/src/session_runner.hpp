@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <exception>
 #include <memory>
 #include <span>
 #include <string>
@@ -21,6 +22,9 @@ namespace skyrelay::bridge {
 // Runs one VehicleSession on its own thread and io_context, with the vehicle's
 // UDP link and a 10 ms tick timer. The session is only ever touched from that
 // thread. The sink is shared with the other runners and must be thread-safe.
+// An exception from the session or the sink, on a datagram or on a tick, is
+// logged and that datagram or tick is lost; the next receive and the next tick
+// still happen.
 class SessionRunner {
  public:
   // Binds the link here, on the calling thread, so a port that is taken fails
@@ -80,6 +84,7 @@ class SessionRunner {
   void arm_timer();
   void on_timer();
   void run();
+  void log_handler_error(const char* where, const std::exception& e);
 
   std::string label_;
   boost::asio::io_context io_;
@@ -93,6 +98,8 @@ class SessionRunner {
   uint16_t port_ = 0;
   uint64_t foreign_logged_ = 0;
   uint64_t reboots_logged_ = 0;
+  uint64_t handler_errors_ = 0;
+  uint64_t handler_errors_logged_ = 0;
   // Only touched on the runner thread, inside the posted stop handler and the
   // timer handler.
   bool stopping_ = false;

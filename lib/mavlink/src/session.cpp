@@ -32,10 +32,13 @@ std::chrono::nanoseconds period_of(double hz, const char* name) {
       std::max(1LL, static_cast<long long>(std::llround(ns)))};
 }
 
+// A component that is not a flight controller (a gimbal or companion
+// computer, say) reports MAV_AUTOPILOT_INVALID, so that does not count either.
 bool is_autopilot_heartbeat(const mavlink_message_t& msg) {
   return msg.msgid == MAVLINK_MSG_ID_HEARTBEAT &&
          msg.compid == MAV_COMP_ID_AUTOPILOT1 &&
-         mavlink_msg_heartbeat_get_type(&msg) != MAV_TYPE_GCS;
+         mavlink_msg_heartbeat_get_type(&msg) != MAV_TYPE_GCS &&
+         mavlink_msg_heartbeat_get_autopilot(&msg) != MAV_AUTOPILOT_INVALID;
 }
 
 }  // namespace
@@ -83,11 +86,9 @@ bool VehicleSession::accept(const mavlink_message_t& msg) {
     return false;
   }
   // Until the autopilot has announced itself nothing counts as this
-  // vehicle's traffic. COMMAND_LONG cannot address a system id above 255.
-  if (!is_autopilot_heartbeat(msg) || msg.sysid == 0 || msg.sysid > 255) {
-    return false;
-  }
-  locked_sysid_ = static_cast<uint8_t>(msg.sysid);
+  // vehicle's traffic. System id 0 is the broadcast address, never a sender.
+  if (!is_autopilot_heartbeat(msg) || msg.sysid == 0) return false;
+  locked_sysid_ = msg.sysid;
   locked_compid_ = msg.compid;
   return true;
 }
@@ -160,9 +161,15 @@ void VehicleSession::handle(const mavlink_message_t& msg, MonoTime now,
 
 void VehicleSession::on_transition(const mav::LinkTransition& tr,
                                    MonoTime now) {
-  // Commands into a dead link only time out; the next Lost -> Recovering
-  // starts a fresh setup anyway.
-  if (tr.to == mav::LinkState::Lost) setup_.reset();
+  if (tr.to == mav::LinkState::Lost) {
+    // Commands into a dead link only time out; the next Lost -> Recovering
+    // starts a fresh setup anyway.
+    setup_.reset();
+    // What the vehicle said before the outage is not repeated after it: the
+    // periodic state and health publishes wait for a fresh message.
+    have_state_ = false;
+    have_health_ = false;
+  }
   publish_link();
   link_pub_.restart(now);
 }

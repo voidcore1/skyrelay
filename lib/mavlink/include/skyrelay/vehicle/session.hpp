@@ -47,8 +47,9 @@ class Transport {
 // from two threads.
 //
 // - Lock. The session locks to the system id of the first HEARTBEAT from
-//   component 1 that is not a GCS, taking only expected_sysid's when that is
-//   set. Before the lock only such a heartbeat counts as traffic. Frames from
+//   component 1 that is not a GCS and names an autopilot (not
+//   MAV_AUTOPILOT_INVALID), taking only expected_sysid's when that is set.
+//   Before the lock only such a heartbeat counts as traffic. Frames from
 //   any other system id (from the start, when expected_sysid is set) are
 //   counted in foreign_sysid_frames and dropped before the model or the link
 //   monitor sees them.
@@ -62,9 +63,10 @@ class Transport {
 //   no change of link state.
 // - Publishing. pose on each GLOBAL_POSITION_INT, capped at pose_hz.
 //   vehicle_state and health at once on a discrete change, otherwise at their
-//   rate; the periodic ones pause while the link is Lost, so stale values are
-//   not repeated. link_status on every transition and at link_hz.
-//   vehicle_info after each setup, and again if it changes later.
+//   rate; the periodic ones stop when the link is Lost and start again only
+//   after a fresh message of their kind, so stale values are not repeated.
+//   link_status on every transition and at link_hz. vehicle_info after each
+//   setup, and again if it changes later.
 // - The bridge's GCS HEARTBEAT goes out at 1 Hz.
 class VehicleSession {
  public:

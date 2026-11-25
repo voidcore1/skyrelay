@@ -30,10 +30,11 @@ Telemetry only.
   per-vehicle state model. The state machines take an injected clock and
   transport.
 - **Bridge:** `skyrelay-bridge`, one session per vehicle from a YAML
-  configuration, acting as a ground station (sysid 245, 1 Hz heartbeat). It
-  sets a vehicle up again after a reboot without dropping the link, and
-  publishes under per-vehicle locks, dropping a failed write instead of
-  throwing.
+  configuration, acting as a ground station (sysid 245, 1 Hz heartbeat). Each
+  vehicle locks to one MAVLink system id, either the one configured with
+  `sysid` or the first autopilot heartbeat on its link. It sets a vehicle up
+  again after a reboot without dropping the link, and publishes under
+  per-vehicle locks, dropping a failed write instead of throwing.
 - **Data contract:** IDL v1 (`skyrelay::v1`) with five telemetry topics:
   `vehicle_info`, `vehicle_state`, `pose`, `health` and `link_status`. Every
   sample carries a common header (`seq`, `t_source_us`, `t_bridge_ns`,

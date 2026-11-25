@@ -125,6 +125,23 @@ uint64_t ns(std::chrono::nanoseconds d) {
   return static_cast<uint64_t>(d.count());
 }
 
+std::vector<uint8_t> to_bytes(const mavlink_message_t& m) {
+  uint8_t buf[MAVLINK_MAX_PACKET_LEN];
+  const uint16_t n = mavlink_msg_to_send_buffer(buf, &m);
+  return {buf, buf + n};
+}
+
+// A GLOBAL_POSITION_INT from the autopilot of `sysid`, outside any schedule.
+std::vector<uint8_t> position_bytes(uint8_t sysid, uint32_t time_boot_ms) {
+  mavlink_status_t st{};
+  mavlink_message_t m{};
+  mavlink_msg_global_position_int_pack_status(sysid, MAV_COMP_ID_AUTOPILOT1,
+                                              &st, &m, time_boot_ms, kLatA,
+                                              85455940, 488000, 10000, 0, 0, 0,
+                                              9000);
+  return to_bytes(m);
+}
+
 }  // namespace
 
 TEST(Session, ConnectsAndPublishesPoseAt20Hz) {
@@ -264,6 +281,26 @@ TEST(Session, ExpectedSysidLocksEvenWhenAnotherSpeaksFirst) {
   EXPECT_GT(h.session.counters().foreign_sysid_frames, 0u);
 }
 
+// A gimbal or companion computer that answers as component 1 reports
+// MAV_AUTOPILOT_INVALID and must not take the vehicle's lock.
+TEST(Session, HeartbeatWithoutAutopilotDoesNotLock) {
+  Harness h;
+  mavlink_status_t st{};
+  mavlink_message_t hb{};
+  mavlink_msg_heartbeat_pack_status(9, MAV_COMP_ID_AUTOPILOT1, &st, &hb,
+                                    MAV_TYPE_QUADROTOR, MAV_AUTOPILOT_INVALID,
+                                    0, 0, MAV_STATE_ACTIVE);
+  h.session.on_bytes(to_bytes(hb));
+  h.session.tick();
+  EXPECT_EQ(h.session.link_state(), LinkState::Lost);
+
+  h.add_vehicle(1);
+  h.run_for(3s);
+  EXPECT_EQ(h.session.link_state(), LinkState::Connected);
+  ASSERT_EQ(h.sink.infos.size(), 1u);
+  EXPECT_EQ(h.sink.infos[0].data.mav_sysid, 1);
+}
+
 TEST(Session, LinkLossAndRecovery) {
   Harness h;
   auto& v = h.add_vehicle(1);
@@ -394,6 +431,36 @@ TEST(Session, FastRebootTriggersResetup) {
   for (size_t i = links_before; i < h.sink.links.size(); ++i) {
     EXPECT_LT(h.sink.links[i].data.stats.loss_pct, 1.0) << i;
   }
+}
+
+// After an outage the last state is not announced again as if it were
+// current: the periodic publish waits for a fresh HEARTBEAT.
+TEST(Session, StaleStateIsNotRepeatedAfterAnOutage) {
+  Harness h;
+  const MonoTime boot = h.clock.mono();
+  auto& v = h.add_vehicle(1);
+  h.run_for(3s);
+  ASSERT_FALSE(h.sink.states.empty());
+
+  v.set_online(false);
+  h.run_for(1200ms);
+  ASSERT_EQ(h.session.link_state(), LinkState::Lost);
+
+  // Back with a position only: the link recovers, but nothing new is known
+  // about the vehicle's state.
+  const auto boot_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+      h.clock.mono() - boot);
+  h.session.on_bytes(
+      position_bytes(1, static_cast<uint32_t>(boot_ms.count())));
+  ASSERT_EQ(h.session.link_state(), LinkState::Recovering);
+  const size_t before = h.sink.states.size();
+  h.run_for(600ms);
+  EXPECT_EQ(h.sink.states.size(), before);
+
+  // The vehicle's next HEARTBEAT brings the state back, then the 5 Hz publish.
+  v.set_online(true);
+  h.run_for(1s);
+  EXPECT_GE(h.sink.states.size(), before + 3);
 }
 
 TEST(Session, StateChangePublishedImmediately) {

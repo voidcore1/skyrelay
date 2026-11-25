@@ -127,6 +127,11 @@ From the repository root:
    build/dev/apps/bridge/skyrelay-bridge --config config/bridge.sih-px4-4.yaml
    ```
 
+   The configuration gives each vehicle an id, a UDP link and, with `sysid`,
+   the MAVLink system id it must use; a vehicle without `sysid` locks to the
+   first autopilot heartbeat on its port. The accepted keys are listed in
+   `apps/bridge/src/config.hpp`.
+
 5. Start the gateway in another terminal.
 
    ```sh

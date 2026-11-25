@@ -87,6 +87,7 @@ int run(const std::string& config_path, std::optional<uint32_t> only,
   for (const auto& [index, v] : selected) {
     vehicle::SessionConfig sc{};
     sc.vehicle_id = v->id;
+    sc.expected_sysid = v->sysid;
     sc.gcs_sysid = cfg.gcs_sysid;
     sc.link = cfg.link;
     sc.rates = cfg.rates;
@@ -98,8 +99,10 @@ int run(const std::string& config_path, std::optional<uint32_t> only,
                                v->name + "): cannot open " +
                                describe(v->link) + ": " + e.code().message());
     }
-    spdlog::info("vehicle {} ({}): {} on channel {}", v->id, v->name,
-                 describe(v->link), index);
+    spdlog::info("vehicle {} ({}): {} on channel {}, {}", v->id, v->name,
+                 describe(v->link), index,
+                 v->sysid ? "sysid " + std::to_string(*v->sysid)
+                          : std::string("first autopilot sysid"));
   }
   for (auto& r : runners) r->start();
 

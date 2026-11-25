@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -29,6 +30,9 @@ struct VehicleConfig {
   uint32_t id = 0;
   std::string name;
   mav::LinkUri link{};
+  // The vehicle's MAVLink system id. Unset: the session locks to the first
+  // autopilot HEARTBEAT on the link.
+  std::optional<uint8_t> sysid;
 };
 
 struct BridgeConfig {
@@ -51,10 +55,13 @@ inline constexpr size_t kMaxVehicles = 16;
 //           recover_healthy_ms: 500, recovering_lost_gap_ms: 2500,
 //           min_loss_samples: 10 }
 //   rates: { pose_hz: 20, state_hz: 5, health_hz: 2 }
-//   vehicles: [ { id: 1, name: px4-0, link: "udp://0.0.0.0:14540" }, ... ]
+//   vehicles: [ { id: 1, name: px4-0, link: "udp://0.0.0.0:14540",
+//                 sysid: 1 }, ... ]
 //
-// Unknown keys, values out of range, duplicate vehicle ids or ports, and more
-// than kMaxVehicles vehicles throw ConfigError.
+// A vehicle's sysid (1-255, not gcs_sysid) is optional. Unknown keys, values
+// out of range, recovering_lost_gap_ms below lost_gap_ms, duplicate vehicle
+// ids, listen ports or out peers, and more than kMaxVehicles vehicles throw
+// ConfigError.
 BridgeConfig parse_config(std::string_view yaml);
 // As parse_config; an unreadable file is a ConfigError too. Messages do not
 // repeat the path.

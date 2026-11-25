@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -20,6 +21,9 @@ class UdpLink {
  public:
   using RxHandler = std::function<void(std::span<const uint8_t>)>;
 
+  // The largest UDP payload over IPv6 without jumbograms (IPv4 allows 65507).
+  static constexpr std::size_t kMaxDatagram = 65527;
+
   struct Stats {
     uint64_t rx_datagrams = 0;
     uint64_t tx_datagrams = 0;
@@ -29,6 +33,8 @@ class UdpLink {
   // UdpListen binds host:port and replies to whoever sent last. UdpOut binds
   // an ephemeral port and sends to host:port. A LinkUri built by hand may use
   // port 0 for a listen link; local_port() then reports what was bound.
+  // on_rx gets each datagram whole and must not throw: an exception leaves
+  // through io_context::run() and the link stops receiving.
   UdpLink(boost::asio::io_context& io, const LinkUri& uri, RxHandler on_rx);
   ~UdpLink();
   UdpLink(const UdpLink&) = delete;
@@ -49,7 +55,9 @@ class UdpLink {
     bool fixed_peer = false;
     bool alive = true;
     boost::asio::ip::udp::endpoint rx_from;
-    std::array<uint8_t, 2048> rx_buf{};
+    // Room for the largest UDP payload, so a datagram that packs many MAVLink
+    // frames is never cut short.
+    std::array<uint8_t, kMaxDatagram> rx_buf{};
     RxHandler on_rx;
     Stats stats;
   };
