@@ -166,9 +166,10 @@ no vehicles.
 ## Quick look without the simulation
 
 The station has a standalone demo that runs entirely in the browser. **All of
-its data is synthetic:** three made-up vehicles on a schematic map, fixed
-pose-age samples, and a scripted 12 s link replay in which vehicle 01 degrades
-at 3 s, loses its link at 5 s, starts recovering at 8 s and reconnects at 10 s.
+its data is synthetic:** three made-up PX4 vehicles on a schematic map, a few
+fixed pose-age samples, and a scripted 12 s link replay in which vehicle 01
+degrades at 3 s, loses its link at 5 s, starts recovering at 8 s and
+reconnects at 10 s. A worse link shows as fewer pose samples, not older ones.
 No gateway, simulator or vehicle is involved, and none of its numbers are
 measurements.
 
@@ -181,7 +182,7 @@ npm run preview -- --host 127.0.0.1 --port 4173 --strictPort
 
 Open <http://127.0.0.1:4173/?demo=1>.
 
-![The station in demo mode with three synthetic vehicles](docs/demo/standalone-dashboard.png)
+![The standalone demo: three synthetic PX4 vehicles on a schematic map, labelled synthetic](docs/demo/standalone-dashboard.png)
 
 ## Benchmark
 

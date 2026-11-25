@@ -6,10 +6,15 @@ import { countsForLatency, LatencyWindow } from '../state/latency'
 
 export const SCHEMATIC_BOUNDS = { west: -0.004, east: 0.004, north: 0.003, south: -0.003 }
 
+// Synthetic pose ages are flat and small, the order of what the bridge and
+// DDS add on one host. A bad link does not make the samples that do arrive
+// older; it means fewer of them (a lower RX rate, a smaller n in the HUD), so
+// that is how the demo shows it. A lost vehicle's last pose is older than the
+// HUD's 10 s window and adds no sample at all.
 const vehicles = [
-  { id: 1, lon: -0.0019, lat: 0.0012, heading: 65, altitude: 42, battery: 83, rx: 24, age: 12, link: 'LINK_CONNECTED' },
-  { id: 2, lon: 0.0010, lat: 0.0013, heading: 210, altitude: 31, battery: 56, rx: 7, age: 24, link: 'LINK_DEGRADED' },
-  { id: 3, lon: 0.0005, lat: -0.0015, heading: 315, altitude: 18, battery: 32, rx: 0, age: 86, link: 'LINK_LOST' },
+  { id: 1, lon: -0.0019, lat: 0.0012, heading: 65, altitude: 42, battery: 83, rx: 24, age: 0.4, link: 'LINK_CONNECTED' },
+  { id: 2, lon: 0.0010, lat: 0.0013, heading: 210, altitude: 31, battery: 56, rx: 7, age: 0.5, link: 'LINK_DEGRADED' },
+  { id: 3, lon: 0.0005, lat: -0.0015, heading: 315, altitude: 18, battery: 32, rx: 0, age: null, link: 'LINK_LOST' },
 ] as const satisfies ReadonlyArray<{
   id: number
   lon: number
@@ -18,7 +23,7 @@ const vehicles = [
   altitude: number
   battery: number
   rx: number
-  age: number
+  age: number | null
   link: LinkState
 }>
 
@@ -29,7 +34,7 @@ const samples = vehicles.flatMap<SampleMsg>((v) => {
     {
       type: 'sample', topic: 'vehicle_info', age_ms: null,
       data: {
-        ...fields, header: header(VehicleInfoValid.autopilot), autopilot: v.id === 2 ? 'AUTOPILOT_ARDUPILOT' : 'AUTOPILOT_PX4',
+        ...fields, header: header(VehicleInfoValid.autopilot), autopilot: 'AUTOPILOT_PX4',
         firmware_version: '', vehicle_type: 'VEHICLE_TYPE_UNKNOWN', mav_sysid: 0, mav_compid: 0,
         capabilities: 0, contract_version: '',
       },
@@ -73,14 +78,16 @@ const replayVehicle = vehicles[0]
 export const REPLAY_VEHICLE_ID = replayVehicle.id
 export const REPLAY_SECONDS = 12
 
-const connected = { link: replayVehicle.link, rx: replayVehicle.rx, ageMs: replayVehicle.age }
+// poseEverySeconds: how often a pose gets through in that phase (null: none).
+// Every pose that does arrives with the same small age.
+const connected = { link: replayVehicle.link, rx: replayVehicle.rx, poseEverySeconds: 1 }
 const replayPhases = [
   { second: 0, ...connected },
-  { second: 3, link: 'LINK_DEGRADED', rx: 7, ageMs: 72 },
-  { second: 5, link: 'LINK_LOST', rx: 0, ageMs: null },
-  { second: 8, link: 'LINK_RECOVERING', rx: 12, ageMs: 44 },
+  { second: 3, link: 'LINK_DEGRADED', rx: 7, poseEverySeconds: 2 },
+  { second: 5, link: 'LINK_LOST', rx: 0, poseEverySeconds: null },
+  { second: 8, link: 'LINK_RECOVERING', rx: 12, poseEverySeconds: 1 },
   { second: 10, ...connected },
-] as const satisfies ReadonlyArray<{ second: number; link: LinkState; rx: number; ageMs: number | null }>
+] as const satisfies ReadonlyArray<{ second: number; link: LinkState; rx: number; poseEverySeconds: number | null }>
 
 // Build the frames once on the replay clock. Skipped renders then have no
 // effect on the fleet state or which samples make it into the HUD window.
@@ -112,11 +119,12 @@ export function demoReplayFrames() {
         },
       }, nowMs)
     }
-    if (phase.ageMs !== null) {
+    const every = phase.poseEverySeconds
+    if (every !== null && (second - phase.second + 1) % every === 0) {
       posesReceived++
       const pose = initial.pose!
       apply({
-        type: 'sample', topic: 'pose', age_ms: phase.ageMs,
+        type: 'sample', topic: 'pose', age_ms: replayVehicle.age,
         data: {
           ...pose, header: { ...pose.header, seq: second + 1 },
           lon_deg: replayVehicle.lon + posesReceived * 0.000012,

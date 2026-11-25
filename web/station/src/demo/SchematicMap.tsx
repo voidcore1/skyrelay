@@ -76,7 +76,7 @@ export function SchematicMap({ fleet }: { fleet: FleetState }) {
           )
         })}
       </svg>
-      <div className="map-tag" aria-hidden="true">OFFLINE MAP · SYNTHETIC</div>
+      <div className="map-tag" aria-hidden="true">SCHEMATIC · SYNTHETIC</div>
     </div>
   )
 }
