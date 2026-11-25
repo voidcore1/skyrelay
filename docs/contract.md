@@ -64,75 +64,31 @@ Writers, readers and topics use the same profile, built in
 | `skyrelay/v1/health` | `telemetry_reliable` | 2 Hz + on change |
 | `skyrelay/v1/link_status` | `state_latched` | on change + 1 Hz |
 
-In the field tables, bit is the `valid_mask` bit, and **core** fields are the
-ones every supported autopilot has to supply. Everything else is **extended**:
-valid when the vehicle has it.
+The field tables are generated from the IDL into
+[`contract/v1-fields.md`](contract/v1-fields.md), so the bit numbers and the
+core/extended class live in one place. Bit is the `valid_mask` bit, and **core**
+fields are the ones every supported autopilot has to supply (marked `, core` in
+the IDL). Everything else is **extended**: valid when the vehicle has it.
 
 ### vehicle_info
 
-| Bit | Field | Type | Unit | Class |
-|---|---|---|---|---|
-| 0 | `autopilot` | `AutopilotKind` | - | core |
-| 1 | `firmware_version` | `string<32>` | - | extended |
-| 2 | `vehicle_type` | `VehicleType` | - | core |
-| 3 | `mav_sysid` | `octet` | - | core |
-| 4 | `mav_compid` | `octet` | - | core |
-| 5 | `capabilities` | `uint64` | - | extended |
-| 6 | `contract_version` | `string<16>` | - | core |
+The fields, bits, units and core/extended class are in the [VehicleInfo table](contract/v1-fields.md#vehicleinfo), generated from the IDL.
 
 ### vehicle_state
 
-| Bit | Field | Type | Unit | Class |
-|---|---|---|---|---|
-| 0 | `armed` | `boolean` | - | core |
-| 1 | `mode` | `FlightMode` | - | core |
-| 2 | `mode_raw` | `string<32>` | - | core |
-| 3 | `landed` | `LandedState` | - | extended |
-| 4 | `system_status` | `octet` | - | extended |
+The fields, bits, units and core/extended class are in the [VehicleState table](contract/v1-fields.md#vehiclestate), generated from the IDL.
 
 ### pose
 
-| Bit | Field | Type | Unit | Class |
-|---|---|---|---|---|
-| 0 | `lat_deg` | `double` | deg | core |
-| 1 | `lon_deg` | `double` | deg | core |
-| 2 | `alt_msl_m` | `double` | m | core |
-| 3 | `alt_rel_home_m` | `double` | m | extended |
-| 4 | `q_w` | `float` | - | core |
-| 5 | `q_x` | `float` | - | core |
-| 6 | `q_y` | `float` | - | core |
-| 7 | `q_z` | `float` | - | core |
-| 8 | `vel_n_mps` | `float` | m/s | core |
-| 9 | `vel_e_mps` | `float` | m/s | core |
-| 10 | `vel_d_mps` | `float` | m/s | core |
-| 11 | `heading_deg` | `float` | deg | extended |
+The fields, bits, units and core/extended class are in the [Pose table](contract/v1-fields.md#pose), generated from the IDL.
 
 ### health
 
-| Bit | Field | Type | Unit | Class |
-|---|---|---|---|---|
-| 0 | `battery_voltage_v` | `float` | V | core |
-| 1 | `battery_current_a` | `float` | A | extended |
-| 2 | `battery_remaining_pct` | `float` | % | core |
-| 3 | `battery_time_remaining_s` | `float` | s | extended |
-| 4 | `gnss_fix` | `GnssFix` | - | core |
-| 5 | `gnss_satellites` | `octet` | - | core |
-| 6 | `gnss_hdop` | `float` | - | extended |
-| 7 | `sensors_present` | `uint32` | - | extended |
-| 8 | `sensors_enabled` | `uint32` | - | extended |
-| 9 | `sensors_healthy` | `uint32` | - | extended |
-| 10 | `estimator_ok` | `boolean` | - | extended |
+The fields, bits, units and core/extended class are in the [Health table](contract/v1-fields.md#health), generated from the IDL.
 
 ### link_status
 
-| Bit | Field | Type | Unit | Class |
-|---|---|---|---|---|
-| 0 | `state` | `LinkState` | - | core |
-| 1 | `state_since_ns` | `uint64` | ns | core |
-| 2 | `rx_rate_hz` | `float` | Hz | core |
-| 3 | `loss_pct` | `float` | % | core |
-| 4 | `last_rx_age_ms` | `uint32` | ms | core |
-| 5 | `signing` | `SigningState` | - | core |
+The fields, bits, units and core/extended class are in the [LinkStatus table](contract/v1-fields.md#linkstatus), generated from the IDL.
 
 `last_rx_age_ms` is the time since the bridge last received a valid frame from
 the vehicle. It is `4294967295` (`UINT32_MAX`) when nothing has been received

@@ -3,7 +3,8 @@
 
 #include <cstdint>
 
-// valid_mask bit i is the i-th data field after `header`.
+// valid_mask bit i is the i-th data field after `header`. kCore is the
+// bits of the fields marked `core` in the IDL, kAll is every data bit.
 namespace skyrelay::v1::valid {
 
 struct VehicleInfo {
@@ -14,6 +15,10 @@ struct VehicleInfo {
   static constexpr uint64_t mav_compid = 1ull << 4;
   static constexpr uint64_t capabilities = 1ull << 5;
   static constexpr uint64_t contract_version = 1ull << 6;
+  static constexpr uint64_t kCore = (1ull << 0) | (1ull << 2) | (1ull << 3) | (1ull << 4) |
+      (1ull << 6);
+  static constexpr uint64_t kAll = (1ull << 0) | (1ull << 1) | (1ull << 2) | (1ull << 3) |
+      (1ull << 4) | (1ull << 5) | (1ull << 6);
 };
 
 struct VehicleState {
@@ -22,6 +27,9 @@ struct VehicleState {
   static constexpr uint64_t mode_raw = 1ull << 2;
   static constexpr uint64_t landed = 1ull << 3;
   static constexpr uint64_t system_status = 1ull << 4;
+  static constexpr uint64_t kCore = (1ull << 0) | (1ull << 1) | (1ull << 2);
+  static constexpr uint64_t kAll = (1ull << 0) | (1ull << 1) | (1ull << 2) | (1ull << 3) |
+      (1ull << 4);
 };
 
 struct Pose {
@@ -37,6 +45,12 @@ struct Pose {
   static constexpr uint64_t vel_e_mps = 1ull << 9;
   static constexpr uint64_t vel_d_mps = 1ull << 10;
   static constexpr uint64_t heading_deg = 1ull << 11;
+  static constexpr uint64_t kCore = (1ull << 0) | (1ull << 1) | (1ull << 2) | (1ull << 4) |
+      (1ull << 5) | (1ull << 6) | (1ull << 7) | (1ull << 8) |
+      (1ull << 9) | (1ull << 10);
+  static constexpr uint64_t kAll = (1ull << 0) | (1ull << 1) | (1ull << 2) | (1ull << 3) |
+      (1ull << 4) | (1ull << 5) | (1ull << 6) | (1ull << 7) |
+      (1ull << 8) | (1ull << 9) | (1ull << 10) | (1ull << 11);
 };
 
 struct Health {
@@ -51,6 +65,10 @@ struct Health {
   static constexpr uint64_t sensors_enabled = 1ull << 8;
   static constexpr uint64_t sensors_healthy = 1ull << 9;
   static constexpr uint64_t estimator_ok = 1ull << 10;
+  static constexpr uint64_t kCore = (1ull << 0) | (1ull << 2) | (1ull << 4) | (1ull << 5);
+  static constexpr uint64_t kAll = (1ull << 0) | (1ull << 1) | (1ull << 2) | (1ull << 3) |
+      (1ull << 4) | (1ull << 5) | (1ull << 6) | (1ull << 7) |
+      (1ull << 8) | (1ull << 9) | (1ull << 10);
 };
 
 struct LinkStatus {
@@ -60,6 +78,10 @@ struct LinkStatus {
   static constexpr uint64_t loss_pct = 1ull << 3;
   static constexpr uint64_t last_rx_age_ms = 1ull << 4;
   static constexpr uint64_t signing = 1ull << 5;
+  static constexpr uint64_t kCore = (1ull << 0) | (1ull << 1) | (1ull << 2) | (1ull << 3) |
+      (1ull << 4) | (1ull << 5);
+  static constexpr uint64_t kAll = (1ull << 0) | (1ull << 1) | (1ull << 2) | (1ull << 3) |
+      (1ull << 4) | (1ull << 5);
 };
 
 }  // namespace skyrelay::v1::valid

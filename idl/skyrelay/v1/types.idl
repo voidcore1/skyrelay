@@ -5,7 +5,10 @@
 //  - no unions, maps, bitsets, @optional or recursive types;
 //  - fields and enum values are append-only;
 //  - every data field carries a trailing "// unit: <unit>" comment, which the
-//    contract codegen reads. Do not move it to its own line.
+//    contract codegen reads. Do not move it to its own line. Append ", core"
+//    for the fields every supported autopilot has to supply; the rest are
+//    extended. Unit "id" is for uint64 identifiers, which travel as decimal
+//    strings in JSON.
 //
 // valid_mask: bit i is the i-th field after `header`. A cleared bit means the
 // value is unavailable; floats are then NaN, integers and enums are 0.
@@ -94,22 +97,22 @@ enum SigningState {
 struct VehicleInfo {
   @key uint32 vehicle_id;        // unit: -
   Header header;
-  AutopilotKind autopilot;       // unit: -
+  AutopilotKind autopilot;       // unit: -, core
   string<32> firmware_version;   // unit: -
-  VehicleType vehicle_type;      // unit: -
-  octet mav_sysid;               // unit: -
-  octet mav_compid;              // unit: -
+  VehicleType vehicle_type;      // unit: -, core
+  octet mav_sysid;               // unit: -, core
+  octet mav_compid;              // unit: -, core
   uint64 capabilities;           // unit: -
-  string<16> contract_version;   // unit: -
+  string<16> contract_version;   // unit: -, core
 };
 
 @appendable
 struct VehicleState {
   @key uint32 vehicle_id;   // unit: -
   Header header;
-  boolean armed;            // unit: -
-  FlightMode mode;          // unit: -
-  string<32> mode_raw;      // unit: -
+  boolean armed;            // unit: -, core
+  FlightMode mode;          // unit: -, core
+  string<32> mode_raw;      // unit: -, core
   LandedState landed;       // unit: -
   octet system_status;      // unit: -
 };
@@ -118,17 +121,17 @@ struct VehicleState {
 struct Pose {
   @key uint32 vehicle_id;   // unit: -
   Header header;
-  double lat_deg;           // unit: deg
-  double lon_deg;           // unit: deg
-  double alt_msl_m;         // unit: m
+  double lat_deg;           // unit: deg, core
+  double lon_deg;           // unit: deg, core
+  double alt_msl_m;         // unit: m, core
   double alt_rel_home_m;    // unit: m
-  float q_w;                // unit: -
-  float q_x;                // unit: -
-  float q_y;                // unit: -
-  float q_z;                // unit: -
-  float vel_n_mps;          // unit: m/s
-  float vel_e_mps;          // unit: m/s
-  float vel_d_mps;          // unit: m/s
+  float q_w;                // unit: -, core
+  float q_x;                // unit: -, core
+  float q_y;                // unit: -, core
+  float q_z;                // unit: -, core
+  float vel_n_mps;          // unit: m/s, core
+  float vel_e_mps;          // unit: m/s, core
+  float vel_d_mps;          // unit: m/s, core
   float heading_deg;        // unit: deg
 };
 
@@ -136,12 +139,12 @@ struct Pose {
 struct Health {
   @key uint32 vehicle_id;           // unit: -
   Header header;
-  float battery_voltage_v;          // unit: V
+  float battery_voltage_v;          // unit: V, core
   float battery_current_a;          // unit: A
-  float battery_remaining_pct;      // unit: %
+  float battery_remaining_pct;      // unit: %, core
   float battery_time_remaining_s;   // unit: s
-  GnssFix gnss_fix;                 // unit: -
-  octet gnss_satellites;            // unit: -
+  GnssFix gnss_fix;                 // unit: -, core
+  octet gnss_satellites;            // unit: -, core
   float gnss_hdop;                  // unit: -
   uint32 sensors_present;           // unit: -
   uint32 sensors_enabled;           // unit: -
@@ -153,12 +156,12 @@ struct Health {
 struct LinkStatus {
   @key uint32 vehicle_id;   // unit: -
   Header header;
-  LinkState state;          // unit: -
-  uint64 state_since_ns;    // unit: ns
-  float rx_rate_hz;         // unit: Hz
-  float loss_pct;           // unit: %
-  uint32 last_rx_age_ms;    // unit: ms
-  SigningState signing;     // unit: -
+  LinkState state;          // unit: -, core
+  uint64 state_since_ns;    // unit: ns, core
+  float rx_rate_hz;         // unit: Hz, core
+  float loss_pct;           // unit: %, core
+  uint32 last_rx_age_ms;    // unit: ms, core
+  SigningState signing;     // unit: -, core
 };
 
 };

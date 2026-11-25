@@ -65,9 +65,9 @@ export interface Header {
 export interface VehicleInfo {
   vehicle_id: number;
   header: Header;
-  autopilot: AutopilotKind;
+  autopilot: AutopilotKind | null;
   firmware_version: string;
-  vehicle_type: VehicleType;
+  vehicle_type: VehicleType | null;
   mav_sysid: number;
   mav_compid: number;
   capabilities: number;
@@ -78,9 +78,9 @@ export interface VehicleState {
   vehicle_id: number;
   header: Header;
   armed: boolean;
-  mode: FlightMode;
+  mode: FlightMode | null;
   mode_raw: string;
-  landed: LandedState;
+  landed: LandedState | null;
   system_status: number;
 }
 
@@ -108,7 +108,7 @@ export interface Health {
   battery_current_a: number | null;
   battery_remaining_pct: number | null;
   battery_time_remaining_s: number | null;
-  gnss_fix: GnssFix;
+  gnss_fix: GnssFix | null;
   gnss_satellites: number;
   gnss_hdop: number | null;
   sensors_present: number;
@@ -120,12 +120,12 @@ export interface Health {
 export interface LinkStatus {
   vehicle_id: number;
   header: Header;
-  state: LinkState;
+  state: LinkState | null;
   state_since_ns: number;
   rx_rate_hz: number | null;
   loss_pct: number | null;
   last_rx_age_ms: number;
-  signing: SigningState;
+  signing: SigningState | null;
 }
 
 export const VehicleInfoValid = {
