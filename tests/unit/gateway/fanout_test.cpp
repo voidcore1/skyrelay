@@ -28,8 +28,8 @@ struct Recorder {
                         [this] { return busy; });
   }
 
-  // Every sample message of every frame, in order. Each frame must be a JSON
-  // array of sample objects.
+  // Every message of every frame, in order. Each frame must be a JSON array
+  // of sample (or gone) objects.
   std::vector<json> samples() const {
     std::vector<json> out;
     for (const auto& f : frames) {
@@ -202,6 +202,66 @@ TEST(Fanout, LatchedTopicsReachNewClients) {
   for (const auto& s : r.samples()) markers[s["topic"]] = s["data"]["marker"];
   EXPECT_EQ(markers, (std::map<std::string, int>{{"vehicle_info", 1}, {"link_status", 3}}));
   EXPECT_EQ(f.stats(id).dropped_superseded, 0u);
+}
+
+TEST(Fanout, ForgetDropsTheLatchedValueAndTellsConnectedClients) {
+  FakeClock clock;
+  Fanout f(clock, {"vehicle_info", "link_status"});
+  Recorder before;
+  before.attach(f);
+  f.publish("link_status", 3, data(1), clock.mono(), 0);
+  f.publish("link_status", 4, data(2), clock.mono(), 0);
+  ASSERT_EQ(before.samples().size(), 2u);
+
+  f.forget("link_status", 3);
+  const auto got = before.samples();
+  ASSERT_EQ(got.size(), 3u);
+  EXPECT_EQ(got[2], json::parse(R"({"type":"gone","topic":"link_status","vehicle_id":3})"));
+  // Forgetting again sends nothing more.
+  f.forget("link_status", 3);
+  EXPECT_EQ(before.samples().size(), 3u);
+
+  // A new client gets vehicle 4 only.
+  Recorder after;
+  const auto id = after.attach(f);
+  f.on_write_complete(id, clock.mono());
+  const auto replay = after.samples();
+  ASSERT_EQ(replay.size(), 1u);
+  EXPECT_EQ(replay[0]["data"]["marker"], 2);
+}
+
+TEST(Fanout, GoneReplacesAnUnsentSampleAndANewSampleReplacesGone) {
+  FakeClock clock;
+  Fanout f(clock);
+  Recorder r;
+  r.busy = true;
+  const auto id = r.attach(f);
+  f.publish("pose", 1, data(1), clock.mono(), 0);
+  f.forget("pose", 1);
+  r.busy = false;
+  f.on_write_complete(id, clock.mono());
+  auto got = r.samples();
+  ASSERT_EQ(got.size(), 1u);
+  EXPECT_EQ(got[0]["type"], "gone");
+  EXPECT_EQ(got[0]["vehicle_id"], 1);
+  EXPECT_EQ(f.stats(id).dropped_superseded, 1u);
+
+  // The instance comes back: its next sample goes out as usual.
+  clock.advance(200ms);
+  f.publish("pose", 1, data(2), clock.mono(), 0);
+  got = r.samples();
+  ASSERT_EQ(got.size(), 2u);
+  EXPECT_EQ(got[1]["type"], "sample");
+  EXPECT_EQ(got[1]["data"]["marker"], 2);
+}
+
+TEST(Fanout, GoneForAClientThatNeverHeardOfItIsNotSent) {
+  FakeClock clock;
+  Fanout f(clock);
+  Recorder r;
+  r.attach(f);
+  f.forget("pose", 9);
+  EXPECT_TRUE(r.frames.empty());
 }
 
 TEST(Fanout, BusyClientDoesNotHoldUpOthers) {

@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import App from './App'
+import { linkMsg, poseMsg } from './test/fixtures'
 
 // The live renderer requires WebGL. Keep the demo map and gateway client real.
 vi.mock('./map/MapView', () => ({ MapView: () => null }))
@@ -178,4 +179,70 @@ test.each(['/', '/?demo=0', '/?demo'])('%s uses the normal gateway by default', 
   expect(screen.queryByRole('group', { name: 'Synthetic link replay' })).toBeNull()
   expect(screen.queryByText(/synthetic/i)).toBeNull()
   expect(openSocket).toHaveBeenCalledExactlyOnceWith(`ws://${window.location.host}/ws`)
+})
+
+// Just enough of a browser WebSocket for the live station.
+class LiveSocket {
+  static readonly CONNECTING = 0
+  static readonly OPEN = 1
+  static readonly CLOSING = 2
+  static readonly CLOSED = 3
+  static last: LiveSocket | undefined
+  readyState = LiveSocket.CONNECTING
+  onopen: ((ev: Event) => void) | null = null
+  onmessage: ((ev: MessageEvent) => void) | null = null
+  onclose: ((ev: CloseEvent) => void) | null = null
+  onerror: ((ev: Event) => void) | null = null
+  constructor() {
+    LiveSocket.last = this
+  }
+  send() {}
+  close() {}
+  open() {
+    this.readyState = LiveSocket.OPEN
+    this.onopen?.(new Event('open'))
+  }
+  deliver(msg: unknown) {
+    this.onmessage?.(new MessageEvent('message', { data: JSON.stringify(msg) }))
+  }
+}
+
+test('live: a vehicle whose link_status stops coming, or is reported gone, turns STALE', () => {
+  vi.useFakeTimers({
+    toFake: ['setInterval', 'clearInterval', 'setTimeout', 'clearTimeout', 'performance', 'Date',
+      'requestAnimationFrame', 'cancelAnimationFrame'],
+  })
+  vi.stubGlobal('WebSocket', LiveSocket)
+  render(<App />)
+  const ws = LiveSocket.last!
+  const advance = (ms: number) => act(() => vi.advanceTimersByTime(ms))
+  const badge = () => {
+    const row = screen.getAllByRole('row').find((r) => r.dataset.vehicle === '2')!
+    return row.querySelector('.badge')?.textContent
+  }
+
+  act(() => {
+    ws.open()
+    ws.deliver({ type: 'hello', version: '0.1.0-preview', contract: '1.0.0-preview.1', insecure: true, server_time_ns: 1 })
+    ws.deliver([linkMsg(2, 'LINK_CONNECTED', 1), poseMsg(2, 47.39, 8.54)])
+  })
+  advance(500)
+  expect(badge()).toBe('CONNECTED')
+
+  // The bridge publishes link_status every second; after 3 s of nothing the
+  // last one is not trusted any more.
+  advance(2000)
+  expect(badge()).toBe('CONNECTED')
+  advance(1000)
+  expect(badge()).toBe('STALE')
+  expect(screen.queryByText(/gateway connection down/i)).toBeNull()
+
+  act(() => ws.deliver([linkMsg(2, 'LINK_CONNECTED', 1)]))
+  advance(500)
+  expect(badge()).toBe('CONNECTED')
+
+  // The gateway says the bridge is gone: stale at once, not 3 s later.
+  act(() => ws.deliver([{ type: 'gone', topic: 'link_status', vehicle_id: 2 }]))
+  advance(50)
+  expect(badge()).toBe('STALE')
 })

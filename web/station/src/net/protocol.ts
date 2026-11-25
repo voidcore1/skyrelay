@@ -40,3 +40,11 @@ export type SampleMsg =
   | Sample<'link_status', LinkStatus>
 
 export type Topic = SampleMsg['topic']
+
+// The vehicle's data on this topic no longer has a live writer in DDS (the
+// bridge exited, crashed, or disposed it). A later sample means it is back.
+export interface GoneMsg {
+  type: 'gone'
+  topic: Topic
+  vehicle_id: number
+}

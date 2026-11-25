@@ -3,8 +3,8 @@
 // It reconnects on its own: after a drop it waits 500 ms, then doubles the wait
 // up to 5 s, and starts again at 500 ms once a new connection has said hello.
 // While open it pings every 2 s and keeps an EWMA (alpha 0.2) of the round
-// trip, which the HUD shows next to the telemetry age.
-import type { HelloMsg, PingMsg, PongMsg, SampleMsg } from './protocol'
+// trip, which the HUD shows next to the pose age.
+import type { GoneMsg, HelloMsg, PingMsg, PongMsg, SampleMsg } from './protocol'
 
 export type GatewayStatus = 'connecting' | 'open' | 'closed'
 
@@ -31,6 +31,7 @@ export class GatewayClient {
 
   private readonly helloCbs: Array<(h: HelloMsg) => void> = []
   private readonly sampleCbs: Array<(s: SampleMsg) => void> = []
+  private readonly goneCbs: Array<(g: GoneMsg) => void> = []
   private readonly statusCbs: Array<(s: GatewayStatus) => void> = []
 
   constructor(url: string, opts?: { backoffMs?: [number, number] }) {
@@ -47,6 +48,10 @@ export class GatewayClient {
 
   onSample(cb: (s: SampleMsg) => void): void {
     this.sampleCbs.push(cb)
+  }
+
+  onGone(cb: (g: GoneMsg) => void): void {
+    this.goneCbs.push(cb)
   }
 
   onStatus(cb: (s: GatewayStatus) => void): void {
@@ -140,8 +145,11 @@ export class GatewayClient {
     }
     if (Array.isArray(msg)) {
       for (const s of msg) {
-        if (isObject(s) && s.type === 'sample' && isObject(s.data) && typeof s.data.vehicle_id === 'number') {
+        if (!isObject(s)) continue
+        if (s.type === 'sample' && isObject(s.data) && typeof s.data.vehicle_id === 'number') {
           for (const cb of this.sampleCbs) cb(s as unknown as SampleMsg)
+        } else if (s.type === 'gone' && typeof s.topic === 'string' && typeof s.vehicle_id === 'number') {
+          for (const cb of this.goneCbs) cb(s as unknown as GoneMsg)
         }
       }
       return

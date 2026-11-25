@@ -63,7 +63,7 @@ struct Core {
         accept_retry(io_) {
     if (!is_loopback(cfg.listen.address())) {
       throw std::invalid_argument(
-          "refusing non-loopback listen address without TLS (arrives in v0.3)");
+          "refusing non-loopback listen address without TLS (arrives in M3, v0.3)");
     }
     acceptor.open(cfg.listen.protocol());
     acceptor.set_option(tcp::acceptor::reuse_address(true));
@@ -605,6 +605,13 @@ void WsServer::post_sample(std::string_view topic, uint32_t vehicle_id, std::str
     ++core->counters.samples;
     core->fanout.publish(topic, vehicle_id, std::move(json), core->clock.mono(),
                          t_bridge_ns);
+  });
+}
+
+void WsServer::post_gone(std::string_view topic, uint32_t vehicle_id) {
+  asio::post(impl_->io, [core = impl_.get(), topic = std::string(topic), vehicle_id] {
+    if (core->stopping) return;
+    core->fanout.forget(topic, vehicle_id);
   });
 }
 

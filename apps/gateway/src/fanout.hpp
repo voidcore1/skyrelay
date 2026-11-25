@@ -40,8 +40,13 @@ inline constexpr double kPoseMaxHz = 10.0;
 // poll(), so a client always ends up with the last pose.
 //
 // Latched topics (those with the state_latched QoS) also keep one value per
-// vehicle for the whole process, and a new client starts with those, the way
-// a late-joining DDS reader gets them.
+// vehicle, and a new client starts with those. The value is kept only while
+// its DDS instance is alive: forget() drops it when the writer goes away, so a
+// bridge that has stopped is never replayed as if it were still there.
+//
+// forget() also tells every client that has a slot for that (topic, vehicle):
+// the slot's next message is a gone notice instead of a sample, replacing any
+// sample not yet sent, and it follows the same one-write-at-a-time rule.
 //
 // Threading: not thread-safe. In the gateway every call happens on the
 // io_context thread, and the callbacks run there too. The callbacks must not
@@ -66,6 +71,10 @@ class Fanout {
   void publish(std::string_view topic, uint32_t vehicle_id, std::string json,
                MonoTime now, uint64_t t_bridge_ns = 0);
 
+  // The DDS instance of (topic, vehicle_id) is no longer alive: its writer
+  // was deleted, disposed it, or lost its liveliness. Never blocks.
+  void forget(std::string_view topic, uint32_t vehicle_id);
+
   // The client's write finished: its dirty slots, if any, go out as one frame.
   void on_write_complete(ClientId, MonoTime now);
 
@@ -88,6 +97,7 @@ class Fanout {
     MonoTime arrived{};
     bool dirty = false;  // waits to be sent
     bool held = false;   // throttled; sent when allowed or after a pause
+    bool gone = false;   // the instance went away; value is empty
     std::optional<RateLimiter> limiter;  // pose only
   };
   using SlotKey = std::pair<std::string, uint32_t>;

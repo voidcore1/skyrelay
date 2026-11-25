@@ -1,12 +1,17 @@
-// Sample builders shared by the unit tests.
+// Sample builders shared by the unit tests. Every field they fill in is
+// marked valid; a null float is marked unavailable, as the bridge does.
 import type { Header, Health, LinkState, LinkStatus, Pose, VehicleInfo, VehicleState } from '../contract/v1'
+import { HealthValid, LinkStatusValid, PoseValid, VehicleInfoValid, VehicleStateValid } from '../contract/v1'
 import type { SampleMsg } from '../net/protocol'
 
+const allBits = (bits: Readonly<Record<string, number>>) => Object.values(bits).reduce((a, b) => a | b, 0)
+
 export const header: Header = { seq: 1, t_source_us: 0, t_bridge_ns: 1_795_400_000_000_000_000, valid_mask: 0 }
+const withMask = (valid_mask: number): Header => ({ ...header, valid_mask })
 
 export const pose: Pose = {
   vehicle_id: 1,
-  header,
+  header: withMask(allBits(PoseValid)),
   lat_deg: 47.397742,
   lon_deg: 8.545594,
   alt_msl_m: 488.2,
@@ -23,7 +28,7 @@ export const pose: Pose = {
 
 export const info: VehicleInfo = {
   vehicle_id: 1,
-  header,
+  header: withMask(allBits(VehicleInfoValid)),
   autopilot: 'AUTOPILOT_PX4',
   firmware_version: '1.17.0',
   vehicle_type: 'VEHICLE_TYPE_MULTIROTOR',
@@ -35,7 +40,7 @@ export const info: VehicleInfo = {
 
 export const vehicleState: VehicleState = {
   vehicle_id: 1,
-  header,
+  header: withMask(allBits(VehicleStateValid)),
   armed: false,
   mode: 'FLIGHT_MODE_HOLD',
   mode_raw: 'AUTO.LOITER',
@@ -45,7 +50,7 @@ export const vehicleState: VehicleState = {
 
 export const health: Health = {
   vehicle_id: 1,
-  header,
+  header: withMask(allBits(HealthValid) & ~HealthValid.battery_time_remaining_s),
   battery_voltage_v: 16.2,
   battery_current_a: -1,
   battery_remaining_pct: 100,
@@ -61,7 +66,7 @@ export const health: Health = {
 
 export const linkStatus: LinkStatus = {
   vehicle_id: 1,
-  header,
+  header: withMask(allBits(LinkStatusValid)),
   state: 'LINK_CONNECTED',
   state_since_ns: 0,
   rx_rate_hz: 360,

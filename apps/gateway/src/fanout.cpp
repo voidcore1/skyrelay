@@ -3,6 +3,7 @@
 #include <charconv>
 #include <chrono>
 #include <cmath>
+#include <string>
 
 namespace skyrelay::gateway {
 namespace {
@@ -30,6 +31,15 @@ void append_sample(std::string& out, std::string_view topic, const std::string& 
                                  std::chars_format::fixed, 3);
     out.append(buf, r.ptr);
   }
+  out += '}';
+}
+
+// {"type":"gone","topic":T,"vehicle_id":V}
+void append_gone(std::string& out, std::string_view topic, uint32_t vehicle_id) {
+  out += R"({"type":"gone","topic":")";
+  out += topic;
+  out += R"(","vehicle_id":)";
+  out += std::to_string(vehicle_id);
   out += '}';
 }
 
@@ -61,6 +71,26 @@ void Fanout::publish(std::string_view topic, uint32_t vehicle_id, std::string js
   if (latched_topics_.contains(topic)) latched_[key] = v;
   for (auto& [id, c] : clients_) {
     offer(c, slot(c, key), v, now);
+    flush(c);
+  }
+}
+
+void Fanout::forget(std::string_view topic, uint32_t vehicle_id) {
+  const SlotKey key{std::string(topic), vehicle_id};
+  latched_.erase(key);
+  for (auto& [id, c] : clients_) {
+    const auto it = c.slots.find(key);
+    // A client that was never sent anything for it has nothing to forget.
+    if (it == c.slots.end() || it->second.gone) continue;
+    Slot& s = it->second;
+    if (s.dirty || s.held) ++c.stats.dropped_superseded;
+    if (s.held) {
+      s.held = false;
+      --c.held;
+    }
+    s.value = {};
+    s.gone = true;
+    mark_dirty(c, it);
     flush(c);
   }
 }
@@ -99,8 +129,10 @@ Fanout::Slots::iterator Fanout::slot(Client& c, const SlotKey& key) {
 
 void Fanout::offer(Client& c, Slots::iterator it, const Value& v, MonoTime now) {
   Slot& s = it->second;
-  // An unsent value is replaced: latest-value, never a queue.
-  if (s.dirty || s.held) ++c.stats.dropped_superseded;
+  // An unsent value is replaced: latest-value, never a queue. An unsent gone
+  // notice is replaced too, since the instance is back.
+  if ((s.dirty || s.held) && !s.gone) ++c.stats.dropped_superseded;
+  s.gone = false;
   s.value = v;
   s.arrived = now;
   // Already on its way at the next write; the limiter was consulted when it
@@ -131,7 +163,11 @@ void Fanout::flush(Client& c) {
   for (const auto it : c.dirty) {
     if (frame.size() > 1) frame += ',';
     const Slot& s = it->second;
-    append_sample(frame, it->first.first, *s.value.json, s.value.t_bridge_ns, now_ns);
+    if (s.gone) {
+      append_gone(frame, it->first.first, it->first.second);
+    } else {
+      append_sample(frame, it->first.first, *s.value.json, s.value.t_bridge_ns, now_ns);
+    }
     it->second.dirty = false;
   }
   frame += ']';

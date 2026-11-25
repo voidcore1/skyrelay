@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { GatewayClient } from './gatewayClient'
-import type { HelloMsg, SampleMsg } from './protocol'
+import type { GoneMsg, HelloMsg, SampleMsg } from './protocol'
 import { linkMsg, poseMsg } from '../test/fixtures'
 
 // Just enough of a browser WebSocket for the client: on* handlers, send, close.
@@ -170,5 +170,29 @@ test('pings every 2 s and keeps an EWMA of the round trip', () => {
   expect(c.rttMs()).toBeUndefined()
   vi.advanceTimersByTime(400)
   expect(sock.sent).toHaveLength(2)
+  c.close()
+})
+
+test('gone notices in a batch reach onGone, between the samples around them', () => {
+  const c = new GatewayClient('ws://127.0.0.1:8080/ws')
+  const seen: string[] = []
+  const gone: GoneMsg[] = []
+  c.onSample((s) => seen.push(`sample ${s.topic} ${s.data.vehicle_id}`))
+  c.onGone((g) => {
+    gone.push(g)
+    seen.push(`gone ${g.topic} ${g.vehicle_id}`)
+  })
+  c.connect()
+  latest().accept()
+  latest().deliver(hello)
+  latest().deliver([
+    linkMsg(1, 'LINK_CONNECTED'),
+    { type: 'gone', topic: 'link_status', vehicle_id: 2 },
+    { type: 'gone', topic: 'link_status' },
+    { type: 'gone', vehicle_id: 3 },
+    poseMsg(1, 47.4, 8.55),
+  ])
+  expect(seen).toEqual(['sample link_status 1', 'gone link_status 2', 'sample pose 1'])
+  expect(gone).toEqual([{ type: 'gone', topic: 'link_status', vehicle_id: 2 }])
   c.close()
 })

@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest'
-import { toFeatureCollection } from './vehicleLayer'
-import { applySample } from '../state/fleetStore'
+import { DIMMED_OPACITY, toFeatureCollection, vehicleLayer, vehicleOpacity } from './vehicleLayer'
+import { applySample, receiveSample } from '../state/fleetStore'
 import { linkMsg, pose, poseMsg } from '../test/fixtures'
 
 test('vehicles without valid position are not drawn', () => {
@@ -32,4 +32,17 @@ test('every link state maps to its short name', () => {
   const fleet = states.map((s, i) => [poseMsg(i + 1, 47.4, 8.55), linkMsg(i + 1, s)]).flat().reduce(applySample, {})
   const links = toFeatureCollection(fleet).features.map((f) => f.properties.link)
   expect(links).toEqual(['CONNECTED', 'DEGRADED', 'LOST', 'RECOVERING'])
+})
+
+test('a stale vehicle stays at its last position, labelled STALE and dimmed', () => {
+  let fleet = applySample({}, poseMsg(3, 47.4, 8.55))
+  fleet = receiveSample(fleet, linkMsg(3, 'LINK_CONNECTED'), 1_000)
+  expect(toFeatureCollection(fleet, 2_000).features[0]!.properties.link).toBe('CONNECTED')
+  const f = toFeatureCollection(fleet, 4_500).features[0]!
+  expect(f.properties.link).toBe('STALE')
+  expect(f.geometry).toEqual({ type: 'Point', coordinates: [8.55, 47.4] })
+  // Per vehicle by label, or all of them while the gateway connection is down.
+  expect(vehicleOpacity(false)).toEqual(['case', ['==', ['get', 'link'], 'STALE'], DIMMED_OPACITY, 1])
+  expect(vehicleOpacity(true)).toBe(DIMMED_OPACITY)
+  expect(vehicleLayer().paint?.['icon-opacity']).toEqual(vehicleOpacity(false))
 })

@@ -96,9 +96,12 @@ class TestGateway {
     server_.emplace(io_, cfg, clock_);
     server_->start();
     dp_.emplace(sdds::open_participant(dc_));
-    feed_.emplace(*dp_, dc_,
-                  [this](std::string_view topic, uint32_t id, std::string j,
-                         uint64_t t) { server_->post_sample(topic, id, std::move(j), t); });
+    feed_.emplace(
+        *dp_, dc_,
+        [this](std::string_view topic, uint32_t id, std::string j, uint64_t t) {
+          server_->post_sample(topic, id, std::move(j), t);
+        },
+        [this](std::string_view topic, uint32_t id) { server_->post_gone(topic, id); });
     thread_ = std::thread([this] { io_.run(); });
   }
 
@@ -157,6 +160,44 @@ struct PoseWriter {
     p.lat_deg(lat);
     p.header().t_bridge_ns(realtime_ns());
     writer.write(p);
+  }
+};
+
+// A link_status writer with the contract's state_latched QoS, the way the
+// bridge publishes it. Deleting it is what a bridge that exits does. With
+// autodispose off, deleting it leaves its instances without a writer instead
+// of disposed, which is what a bridge that crashes looks like once its
+// liveliness runs out.
+struct LinkWriter {
+  ::dds::domain::DomainParticipant dp;
+  ::dds::pub::Publisher pub;
+  ::dds::topic::Topic<v1::LinkStatus> topic;
+  ::dds::pub::DataWriter<v1::LinkStatus> writer;
+
+  LinkWriter(const sdds::DomainConfig& c, bool autodispose)
+      : dp(sdds::open_participant(c)),
+        pub(sdds::make_publisher(dp, c)),
+        topic(dp, std::string(sdds::kTopicLinkStatus),
+              sdds::topic_qos(sdds::Profile::StateLatched)),
+        writer(pub, topic,
+               sdds::writer_qos(sdds::Profile::StateLatched)
+                   << ::dds::core::policy::WriterDataLifecycle(autodispose)) {}
+
+  bool wait_matched(std::chrono::milliseconds timeout) {
+    const auto end = SteadyClock::now() + timeout;
+    while (SteadyClock::now() < end) {
+      if (!::dds::pub::matched_subscriptions(writer).empty()) return true;
+      std::this_thread::sleep_for(10ms);
+    }
+    return false;
+  }
+
+  void write(uint32_t vehicle_id) {
+    v1::LinkStatus l;
+    l.vehicle_id(vehicle_id);
+    l.state(v1::LinkState::LINK_CONNECTED);
+    l.header().t_bridge_ns(realtime_ns());
+    writer.write(l);
   }
 };
 
@@ -475,6 +516,16 @@ bool is_pose_of(const json& s, uint32_t vehicle_id) {
          s["data"].value("vehicle_id", 0u) == vehicle_id;
 }
 
+bool is_link_of(const json& s, uint32_t vehicle_id) {
+  return s.value("type", "") == "sample" && s.value("topic", "") == "link_status" &&
+         s.contains("data") && s["data"].value("vehicle_id", 0u) == vehicle_id;
+}
+
+bool is_gone_of(const json& s, const std::string& topic, uint32_t vehicle_id) {
+  return s.value("type", "") == "gone" && s.value("topic", "") == topic &&
+         s.value("vehicle_id", 0u) == vehicle_id;
+}
+
 }  // namespace
 
 TEST(Gateway, ServesRangeWith206) {
@@ -588,6 +639,52 @@ TEST(Gateway, StreamsPoseJson) {
   EXPECT_LT(s->body["age_ms"].get<double>(), 5000.0);
 }
 
+// A bridge that goes away must not be replayed as if it were still there.
+// Vehicle 5's writer is deleted, which disposes its instance; vehicle 6's
+// writer has autodispose off, so its instance is left without a writer. A
+// client that was connected gets a gone notice for each, and a client that
+// connects afterwards gets no link_status for either.
+TEST(Gateway, ForgetsLinkStatusOfAWriterThatWentAway) {
+  TestGateway gw;
+  WsClient early(gw.endpoint());
+  early.start_reading();
+  ASSERT_TRUE(early.next(5s));  // hello
+
+  auto w5 = std::make_unique<LinkWriter>(gw.dds(), true);
+  auto w6 = std::make_unique<LinkWriter>(gw.dds(), false);
+  ASSERT_TRUE(w5->wait_matched(5s));
+  ASSERT_TRUE(w6->wait_matched(5s));
+  w5->write(5);
+  w6->write(6);
+  ASSERT_TRUE(early.wait_for_sample([](const json& s) { return is_link_of(s, 5); }, 5s));
+  ASSERT_TRUE(early.wait_for_sample([](const json& s) { return is_link_of(s, 6); }, 5s));
+
+  // While the writers are there, a new client gets the latched values.
+  {
+    WsClient replayed(gw.endpoint());
+    replayed.start_reading();
+    ASSERT_TRUE(replayed.next(5s));  // hello
+    EXPECT_TRUE(replayed.wait_for_sample([](const json& s) { return is_link_of(s, 5); }, 5s));
+  }
+
+  w5.reset();
+  w6.reset();
+  EXPECT_TRUE(early.wait_for_sample(
+      [](const json& s) { return is_gone_of(s, "link_status", 5); }, 5s))
+      << "no gone notice for the disposed instance";
+  EXPECT_TRUE(early.wait_for_sample(
+      [](const json& s) { return is_gone_of(s, "link_status", 6); }, 5s))
+      << "no gone notice for the instance without a writer";
+
+  WsClient late(gw.endpoint());
+  late.start_reading();
+  auto hello = late.next(5s);
+  ASSERT_TRUE(hello);
+  EXPECT_EQ(hello->body["type"], "hello");
+  EXPECT_FALSE(late.wait_for([](const json& j) { return j.is_array(); }, 1s))
+      << "a client that joined after the writers left got a replay";
+}
+
 TEST(Gateway, SlowClientDoesNotStallOthers) {
   // A slow browser must never stall the others. Client A completes the
   // handshake and never reads again; its receive buffer is tiny, so the
@@ -649,7 +746,7 @@ TEST(Gateway, RefusesNonLoopbackListen) {
     ASSERT_TRUE(WIFEXITED(*status)) << listen;
     EXPECT_EQ(WEXITSTATUS(*status), 2) << listen << "\n" << g.output();
     EXPECT_NE(g.output().find(
-                  "refusing non-loopback listen address without TLS (arrives in v0.3)"),
+                  "refusing non-loopback listen address without TLS (arrives in M3, v0.3)"),
               std::string::npos)
         << g.output();
   }
@@ -772,12 +869,17 @@ TEST(Gateway, AcceptsAllowedOrigin) {
   up.emplace_back(http::field::origin, "http://localhost:5174");
   EXPECT_EQ(http_request(ep, http::verb::get, "/ws", {}, up).status, 403u);
 
-  // And it shuts down promptly with clients still connected.
-  const auto t0 = SteadyClock::now();
+  // And it shuts down promptly with clients still connected. The bound is on
+  // the gateway's own measurement, from the signal being handled to the
+  // participant being gone; the wall time around it also covers process exit,
+  // which a sanitizer can stretch well past a second.
   ASSERT_EQ(::kill(g.pid(), SIGTERM), 0);
   const auto status = g.wait_exit(10s);
-  const auto took = std::chrono::duration_cast<std::chrono::milliseconds>(SteadyClock::now() - t0);
   ASSERT_TRUE(status) << g.output();
   EXPECT_TRUE(WIFEXITED(*status) && WEXITSTATUS(*status) == 0) << g.output();
-  EXPECT_LT(took, 1000ms) << g.output();
+  const std::string stopped = "stopped in ";
+  const auto at_stopped = g.output().rfind(stopped);
+  ASSERT_NE(at_stopped, std::string::npos) << g.output();
+  const auto took_ms = std::stol(g.output().substr(at_stopped + stopped.size()));
+  EXPECT_LT(took_ms, 1000) << g.output();
 }

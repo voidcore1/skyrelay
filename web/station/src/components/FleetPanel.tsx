@@ -1,38 +1,46 @@
 // One row per vehicle: id, autopilot, link state, mode, armed, battery, and a
-// second line with position, heading and link rate.
+// second line with position, heading and link rate. A field whose valid_mask
+// bit is cleared is shown as a dash, never as its zero value.
 import type { CSSProperties } from 'react'
-import type { FleetState, VehicleView } from '../state/fleetStore'
-import { LINK_COLOR, linkLabel, type LinkLabel } from '../state/link'
+import { VehicleInfoValid, VehicleStateValid } from '../contract/v1'
+import { vehicleLink, type FleetState, type VehicleView } from '../state/fleetStore'
+import { LINK_COLOR, linkText, type LinkLabel } from '../state/link'
+import { isValid } from '../state/valid'
 import { DASH, fmtAutopilot, fmtFixed, fmtHeading, fmtId, fmtMode, fmtPercent } from './format'
 
-const STATE_ORDER: LinkLabel[] = ['CONNECTED', 'DEGRADED', 'RECOVERING', 'LOST', 'UNKNOWN']
+const STATE_ORDER: LinkLabel[] = ['CONNECTED', 'DEGRADED', 'RECOVERING', 'LOST', 'STALE', 'UNKNOWN']
 
 const stateStyle = (l: LinkLabel) => ({ '--state': LINK_COLOR[l] }) as CSSProperties
 
 const withUnit = (text: string, unit: string) => (text === DASH ? DASH : `${text}${unit}`)
 
 function Armed({ v }: { v: VehicleView }) {
-  if (v.state === undefined) return <span className="dim">{DASH}</span>
+  if (v.state === undefined || !isValid(v.state.header, VehicleStateValid.armed)) {
+    return <span className="dim">{DASH}</span>
+  }
   return v.state.armed ? <span className="armed">ARMED</span> : <span className="dim">DISARMED</span>
 }
 
-function Row({ v }: { v: VehicleView }) {
-  const link = linkLabel(v.link?.state)
+function Row({ v, nowMs }: { v: VehicleView; nowMs: number | undefined }) {
+  const link = vehicleLink(v, nowMs)
   const p = v.pose
   const rx = v.link?.rx_rate_hz
   const rxText = rx === null || rx === undefined ? DASH : Math.round(rx).toString()
+  const autopilot = v.info && isValid(v.info.header, VehicleInfoValid.autopilot) ? v.info.autopilot : undefined
+  const mode = v.state && isValid(v.state.header, VehicleStateValid.mode) ? v.state.mode : undefined
+  const modeRaw = v.state && isValid(v.state.header, VehicleStateValid.mode_raw) ? v.state.mode_raw : undefined
   return (
     <tbody className="vehicle" data-link={link} style={stateStyle(link)}>
       <tr data-vehicle={v.id}>
         <th scope="row" className="c-id">
           {fmtId(v.id)}
         </th>
-        <td className="c-ap">{fmtAutopilot(v.info?.autopilot)}</td>
+        <td className="c-ap">{fmtAutopilot(autopilot)}</td>
         <td className="c-link">
-          <span className="badge">{link === 'UNKNOWN' ? 'NO DATA' : link}</span>
+          <span className="badge">{linkText(link)}</span>
         </td>
-        <td className="c-mode" title={v.state?.mode_raw || undefined}>
-          {fmtMode(v.state?.mode, v.state?.mode_raw)}
+        <td className="c-mode" title={modeRaw || undefined}>
+          {fmtMode(mode, modeRaw)}
         </td>
         <td className="c-arm">
           <Armed v={v} />
@@ -54,15 +62,18 @@ function Row({ v }: { v: VehicleView }) {
   )
 }
 
-export function FleetPanel({ fleet, stale, synthetic = false }: {
+// nowMs (performance.now()) lets a row turn STALE when its link_status stops
+// coming; without it only a gone notice does.
+export function FleetPanel({ fleet, stale, synthetic = false, nowMs }: {
   fleet: FleetState
   stale: boolean
   synthetic?: boolean
+  nowMs?: number
 }) {
   const vehicles = Object.values(fleet).sort((a, b) => a.id - b.id)
   const counts = new Map<LinkLabel, number>()
   for (const v of vehicles) {
-    const l = linkLabel(v.link?.state)
+    const l = vehicleLink(v, nowMs)
     counts.set(l, (counts.get(l) ?? 0) + 1)
   }
   return (
@@ -74,7 +85,7 @@ export function FleetPanel({ fleet, stale, synthetic = false }: {
         <ul className="tally" aria-label="Link states">
           {STATE_ORDER.filter((l) => counts.has(l)).map((l) => (
             <li key={l} style={stateStyle(l)}>
-              {counts.get(l)} {l === 'UNKNOWN' ? 'NO DATA' : l}
+              {counts.get(l)} {linkText(l)}
             </li>
           ))}
         </ul>
@@ -101,7 +112,7 @@ export function FleetPanel({ fleet, stale, synthetic = false }: {
             </tr>
           </thead>
           {vehicles.map((v) => (
-            <Row key={v.id} v={v} />
+            <Row key={v.id} v={v} nowMs={nowMs} />
           ))}
         </table>
       )}

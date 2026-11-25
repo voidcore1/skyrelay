@@ -110,6 +110,9 @@ int run(const Options& o) {
       [&server](std::string_view topic, uint32_t vehicle_id, std::string json,
                 uint64_t t_bridge_ns) {
         server.post_sample(topic, vehicle_id, std::move(json), t_bridge_ns);
+      },
+      [&server](std::string_view topic, uint32_t vehicle_id) {
+        server.post_gone(topic, vehicle_id);
       });
 
   std::promise<void> io_done;
@@ -179,7 +182,7 @@ int main(int argc, char** argv) {
     return 2;
   }
   if (!gw::is_loopback(ep->address())) {
-    spdlog::error("refusing non-loopback listen address without TLS (arrives in v0.3)");
+    spdlog::error("refusing non-loopback listen address without TLS (arrives in M3, v0.3)");
     return 2;
   }
   o.listen = *ep;

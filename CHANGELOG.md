@@ -48,13 +48,19 @@ Telemetry only.
 - **Gateway:** `skyrelay-gateway` serves the station and the offline map, with
   HTTP range requests for PMTiles, and streams telemetry as JSON over a
   WebSocket (`pose` capped at 10 Hz per vehicle per client, latest-value
-  fan-out, late joiners get the latched topics). Documented in
-  `docs/gateway-protocol.md`.
+  fan-out, late joiners get the latched topics of writers that are still
+  alive, and connected clients get a `gone` notice when a writer goes away).
+  Documented in `docs/gateway-protocol.md`.
 - **Web station:** offline MapLibre map from a PMTiles extract fetched once by
-  `tools/maps/fetch-region.sh` with pinned, checksum-verified downloads; fleet
-  panel with link states, mode, armed state and battery, and a stale-data
-  notice when the gateway connection drops; pose-age HUD (nearest-rank p50 and
-  p99 over 10 s) and the round trip to the gateway, labelled indicative.
+  `tools/maps/fetch-region.sh`, which pins and checksum-verifies the
+  go-pmtiles CLI, the fonts and the sprites; the extract itself comes from a
+  dated Protomaps daily build, which is not checksummed, and is checked with
+  `pmtiles verify`. Fleet panel with link states, mode, armed state and
+  battery, a dash for any field the vehicle marks unavailable, a STALE label
+  for a vehicle whose `link_status` stops arriving or whose bridge has gone,
+  and a stale-data notice when the gateway connection drops; pose-age HUD
+  (nearest-rank p50 and p99 over 10 s) and the round trip to the gateway,
+  labelled indicative.
 - **Standalone demo:** the station at `?demo=1` with synthetic vehicles on a
   schematic map and a scripted 12 s link replay, labelled synthetic
   throughout.

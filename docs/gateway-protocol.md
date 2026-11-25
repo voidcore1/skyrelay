@@ -23,11 +23,11 @@ gateway without the flag next to a bridge with it shows no vehicles.
 ## Security in the preview
 
 **INSECURE PREVIEW.** There is no TLS and no authentication in M1; both arrive
-in v0.3. Until then the gateway relies on three checks.
+in M3 (v0.3). Until then the gateway relies on three checks.
 
 - **It listens on loopback only** (127.0.0.0/8 or `::1`). Any other `--listen`
   address makes it exit with code 2 and
-  `refusing non-loopback listen address without TLS (arrives in v0.3)`. That
+  `refusing non-loopback listen address without TLS (arrives in M3, v0.3)`. That
   keeps other machines out, but not web pages running in the operator's own
   browser, which is what the next two checks are for.
 - **Host check, on every request.** The `Host` header must name loopback with
@@ -98,8 +98,8 @@ Content types come from the extension: `.pmtiles` is
 ## WebSocket `/ws`
 
 Every message is one JSON text frame. **What the browser receives is always
-either a single object (`hello` or `pong`) or an array of `sample` objects.**
-A frame that is an array never holds anything but samples.
+either a single object (`hello` or `pong`) or an array of `sample` and `gone`
+objects.** A frame that is an array never holds anything else.
 
 ### Server to client
 
@@ -130,7 +130,28 @@ Telemetry comes as arrays of samples:
   are `CLOCK_REALTIME`; with the bridge on another host the value is only as
   good as their synchronisation, and it can be negative. It is `null` when the
   bridge time is unknown (0).
-- The order of samples inside a frame carries no meaning.
+- The order of messages inside a frame carries no meaning.
+
+The station's latency HUD uses the `age_ms` of `pose` only. Pose is published
+as each position message is decoded, so its age is bridge + DDS + gateway;
+`vehicle_state` and `health` are republished at a fixed rate from the last
+decoded message, and the latched topics are replayed to new clients with the
+age of the stored sample, so their ages also hold how old the source message
+was.
+
+When a vehicle's data stops having a live writer in DDS (the bridge exited,
+crashed and its DDS lease ran out, or disposed the vehicle), every client that
+was sent something for that topic and vehicle gets:
+
+```json
+[{"type":"gone","topic":"link_status","vehicle_id":2}]
+```
+
+It means the last sample of that topic for that vehicle is no longer backed by
+anything. The station marks a vehicle STALE when its `link_status` is gone (and
+also when no `link_status` has arrived for 3 s, since the bridge sends one every
+second). It can arrive in the same array as samples, and a later sample for the
+same topic and vehicle means the data is back.
 
 ### Fan-out rules
 
@@ -148,8 +169,14 @@ Each client has one latest-value slot per (topic, vehicle):
   fewer, fresher frames, and never delays DDS or the other clients. Overwritten
   samples are counted per client and logged when it disconnects.
 - On connect a client also gets the last `vehicle_info` and `link_status` of
-  every vehicle, like a late-joining DDS reader with the `state_latched` QoS.
-  The volatile topics simply arrive with their next sample.
+  every vehicle whose writer is still alive, much as a late-joining DDS reader
+  with the `state_latched` QoS gets them from that writer. A value whose writer
+  has gone is dropped together with the `gone` notice above, so a stopped
+  bridge is never replayed as if it were still running. The volatile topics
+  simply arrive with their next sample.
+- A `gone` notice uses the same slot as the samples of its topic and vehicle:
+  it replaces a sample that has not been sent yet, and a newer sample replaces
+  it.
 
 ### Client to server
 

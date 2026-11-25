@@ -59,7 +59,8 @@ struct ServerConfig {
 //
 // Everything runs on the thread that runs the io_context. The Fanout, the
 // sessions and the acceptor are only touched there, so nothing is locked.
-// post_sample(), stop() and counters() may be called from any thread.
+// post_sample(), post_gone(), stop() and counters() may be called from any
+// thread.
 class WsServer {
  public:
   struct Counters {
@@ -88,6 +89,10 @@ class WsServer {
   // DDS listener thread; never blocks.
   void post_sample(std::string_view topic, uint32_t vehicle_id, std::string json,
                    uint64_t t_bridge_ns);
+
+  // Hands a gone instance to the fan-out (Fanout::forget) on the io_context
+  // thread. Called from the DDS listener thread; never blocks.
+  void post_gone(std::string_view topic, uint32_t vehicle_id);
 
   // Stops accepting, cancels the timer and closes every connection. Once the
   // handlers of the closed connections have run, the io_context runs out of

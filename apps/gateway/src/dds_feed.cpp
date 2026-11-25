@@ -30,9 +30,11 @@ template <class T>
 class Channel final : public ::dds::sub::NoOpDataReaderListener<T> {
  public:
   Channel(::dds::domain::DomainParticipant& dp, ::dds::sub::Subscriber& sub,
-          std::string_view topic, const DdsFeed::Sink& sink, std::atomic<uint64_t>& errors)
+          std::string_view topic, const DdsFeed::Sink& sink, const DdsFeed::GoneSink& gone,
+          std::atomic<uint64_t>& errors)
       : name_(protocol_name(topic)),
         sink_(sink),
+        gone_(gone),
         errors_(errors),
         topic_(dp, std::string(topic), sdds::topic_qos(sdds::profile_for(topic))),
         reader_(sub, topic_, sdds::reader_qos(sdds::profile_for(topic)), this,
@@ -47,13 +49,20 @@ class Channel final : public ::dds::sub::NoOpDataReaderListener<T> {
     try {
       auto samples = reader.take();
       for (const auto& s : samples) {
-        if (!s.info().valid()) continue;
+        // An invalid sample only reports an instance state change; its key
+        // field is still filled in.
         const T& d = s.data();
-        // Strings from a vehicle are not guaranteed to be UTF-8.
-        sink_(name_, d.vehicle_id(),
-              v1::to_json_value(d).dump(-1, ' ', false,
-                                        nlohmann::json::error_handler_t::replace),
-              d.header().t_bridge_ns());
+        if (s.info().valid()) {
+          // Strings from a vehicle are not guaranteed to be UTF-8.
+          sink_(name_, d.vehicle_id(),
+                v1::to_json_value(d).dump(-1, ' ', false,
+                                          nlohmann::json::error_handler_t::replace),
+                d.header().t_bridge_ns());
+        }
+        if (s.info().state().instance_state() !=
+            ::dds::sub::status::InstanceState::alive()) {
+          gone_(name_, d.vehicle_id());
+        }
       }
     } catch (const std::exception& e) {
       if (errors_.fetch_add(1) == 0) {
@@ -65,6 +74,7 @@ class Channel final : public ::dds::sub::NoOpDataReaderListener<T> {
  private:
   std::string_view name_;
   const DdsFeed::Sink& sink_;
+  const DdsFeed::GoneSink& gone_;
   std::atomic<uint64_t>& errors_;
   ::dds::topic::Topic<T> topic_;
   ::dds::sub::DataReader<T> reader_;
@@ -73,14 +83,16 @@ class Channel final : public ::dds::sub::NoOpDataReaderListener<T> {
 }  // namespace
 
 struct DdsFeed::Impl {
-  Impl(::dds::domain::DomainParticipant& dp, const sdds::DomainConfig& dc, Sink s)
+  Impl(::dds::domain::DomainParticipant& dp, const sdds::DomainConfig& dc, Sink s,
+       GoneSink g)
       : sink(std::move(s)),
+        gone(std::move(g)),
         sub(sdds::make_subscriber(dp, dc)),
-        info(dp, sub, sdds::kTopicVehicleInfo, sink, errors),
-        state(dp, sub, sdds::kTopicVehicleState, sink, errors),
-        pose(dp, sub, sdds::kTopicPose, sink, errors),
-        health(dp, sub, sdds::kTopicHealth, sink, errors),
-        link(dp, sub, sdds::kTopicLinkStatus, sink, errors) {}
+        info(dp, sub, sdds::kTopicVehicleInfo, sink, gone, errors),
+        state(dp, sub, sdds::kTopicVehicleState, sink, gone, errors),
+        pose(dp, sub, sdds::kTopicPose, sink, gone, errors),
+        health(dp, sub, sdds::kTopicHealth, sink, gone, errors),
+        link(dp, sub, sdds::kTopicLinkStatus, sink, gone, errors) {}
 
   ~Impl() {
     // All listeners off before any reader, subscriber or the sink goes.
@@ -92,6 +104,7 @@ struct DdsFeed::Impl {
   }
 
   Sink sink;
+  GoneSink gone;
   std::atomic<uint64_t> errors{0};
   ::dds::sub::Subscriber sub;
   Channel<v1::VehicleInfo> info;
@@ -102,8 +115,9 @@ struct DdsFeed::Impl {
 };
 
 DdsFeed::DdsFeed(::dds::domain::DomainParticipant& participant,
-                 const skyrelay::dds::DomainConfig& config, Sink sink)
-    : impl_(std::make_unique<Impl>(participant, config, std::move(sink))) {}
+                 const skyrelay::dds::DomainConfig& config, Sink sink, GoneSink gone)
+    : impl_(std::make_unique<Impl>(participant, config, std::move(sink),
+                                   std::move(gone))) {}
 
 DdsFeed::~DdsFeed() = default;
 

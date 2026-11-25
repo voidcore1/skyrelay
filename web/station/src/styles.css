@@ -323,6 +323,24 @@ a {
   content: ' ]';
 }
 
+.map-error {
+  position: absolute;
+  left: 50%;
+  bottom: 40px;
+  transform: translateX(-50%);
+  max-width: min(560px, calc(100% - 32px));
+  padding: 10px 14px;
+  background: var(--bg);
+  border: 1px solid var(--hazard);
+  color: var(--fg);
+  font-size: var(--small);
+  line-height: 1.5;
+}
+
+.map-error code {
+  color: var(--hazard);
+}
+
 .map-wrap.schematic-wrap {
   background: #1c2227;
   container: schematic-pane / inline-size;
@@ -588,8 +606,15 @@ a {
   background: var(--bg);
 }
 
-.vehicle[data-link='UNKNOWN'] .badge {
+.vehicle[data-link='UNKNOWN'] .badge,
+.vehicle[data-link='STALE'] .badge {
   font-weight: 500;
+}
+
+/* A stale row keeps its last values but reads as old. */
+.vehicle[data-link='STALE'] td,
+.vehicle[data-link='STALE'] th {
+  opacity: 0.55;
 }
 
 .armed {

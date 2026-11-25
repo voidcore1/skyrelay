@@ -10,7 +10,7 @@ import { demoReplayFrames, REPLAY_SECONDS, REPLAY_VEHICLE_ID } from './demo/snap
 import { MapView } from './map/MapView'
 import { GatewayClient, type GatewayStatus } from './net/gatewayClient'
 import type { HelloMsg } from './net/protocol'
-import { applySample, type FleetState } from './state/fleetStore'
+import { applyGone, receiveSample, type FleetState } from './state/fleetStore'
 import { LatencyWindow, countsForLatency, type LatencyStats } from './state/latency'
 import { LINK_COLOR, linkLabel, type LinkLabel } from './state/link'
 
@@ -96,6 +96,9 @@ function LiveStation() {
   const [latency, setLatency] = useState<LatencyStats | null>(null)
   const [rtt, setRtt] = useState<number>()
   const [now, setNow] = useState(() => Date.now())
+  // The station's own clock, which sample arrival times are kept on; it
+  // decides when a vehicle whose link_status stopped coming turns STALE.
+  const [monoNow, setMonoNow] = useState(() => performance.now())
 
   useEffect(() => {
     const client = new GatewayClient(GATEWAY_URL)
@@ -111,15 +114,22 @@ function LiveStation() {
     client.onHello(setHello)
     client.onStatus(setStatus)
     client.onSample((s) => {
-      if (countsForLatency(s)) window10s.add(s.age_ms, performance.now())
-      current = applySample(current, s)
+      const at = performance.now()
+      if (countsForLatency(s)) window10s.add(s.age_ms, at)
+      current = receiveSample(current, s, at)
+      if (frame === 0) frame = requestAnimationFrame(render)
+    })
+    client.onGone((g) => {
+      current = applyGone(current, g)
       if (frame === 0) frame = requestAnimationFrame(render)
     })
     client.connect()
     const tick = setInterval(() => {
-      setLatency(window10s.stats(performance.now()))
+      const at = performance.now()
+      setLatency(window10s.stats(at))
       setRtt(client.rttMs())
       setNow(Date.now())
+      setMonoNow(at)
     }, HUD_REFRESH_MS)
     return () => {
       client.close()
@@ -128,7 +138,7 @@ function LiveStation() {
     }
   }, [])
 
-  return <Station fleet={fleet} latency={latency} live={{ hello, status, rtt, now }} />
+  return <Station fleet={fleet} latency={latency} live={{ hello, status, rtt, now, monoNow }} />
 }
 
 interface StationProps {
@@ -140,6 +150,7 @@ interface StationProps {
     status: GatewayStatus
     rtt: number | undefined
     now: number
+    monoNow: number
   }
 }
 
@@ -188,8 +199,8 @@ function Station({ fleet, latency, demoControls, live }: StationProps) {
         )}
       </header>
       <main className="workspace">
-        {live ? <MapView fleet={fleet} stale={stale} /> : <SchematicMap fleet={fleet} />}
-        <FleetPanel fleet={fleet} stale={stale} synthetic={!live} />
+        {live ? <MapView fleet={fleet} stale={stale} nowMs={live.monoNow} /> : <SchematicMap fleet={fleet} />}
+        <FleetPanel fleet={fleet} stale={stale} synthetic={!live} nowMs={live?.monoNow} />
       </main>
       <footer className="statusbar">
         <LatencyHud stats={latency} rttMs={live?.rtt} synthetic={!live} />

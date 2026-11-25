@@ -1,11 +1,12 @@
 // Vehicles on the map: one arrow per vehicle at its last known position,
 // pointing along its heading and coloured by link state, with the id next to
-// it. A lost vehicle's arrow is hollow, and every state other than CONNECTED
-// is also spelled out in the label, so the map does not rely on colour alone.
+// it. A lost vehicle's arrow is hollow, a stale one is grey and dimmed, and
+// every state other than CONNECTED is also spelled out in the label, so the
+// map does not rely on colour alone.
 import type { FeatureCollection, Point } from 'geojson'
 import type { ExpressionSpecification, SymbolLayerSpecification } from 'maplibre-gl'
-import { LINK_COLOR, LINK_SEVERITY, linkLabel, type LinkLabel } from '../state/link'
-import type { FleetState } from '../state/fleetStore'
+import { LINK_COLOR, LINK_SEVERITY, type LinkLabel } from '../state/link'
+import { vehicleLink, type FleetState } from '../state/fleetStore'
 
 export interface VehicleProps {
   id: number
@@ -19,7 +20,9 @@ export const VEHICLE_LAYER = 'vehicles'
 const isLat = (v: number | null | undefined): v is number => typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= 90
 const isLon = (v: number | null | undefined): v is number => typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= 180
 
-export function toFeatureCollection(f: FleetState): FeatureCollection<Point, VehicleProps> {
+// nowMs (performance.now()) lets a vehicle turn STALE when its link_status
+// stops coming, as in the fleet panel.
+export function toFeatureCollection(f: FleetState, nowMs?: number): FeatureCollection<Point, VehicleProps> {
   const features: FeatureCollection<Point, VehicleProps>['features'] = []
   for (const v of Object.values(f)) {
     const lat = v.pose?.lat_deg
@@ -33,7 +36,7 @@ export function toFeatureCollection(f: FleetState): FeatureCollection<Point, Veh
       properties: {
         id: v.id,
         heading: typeof heading === 'number' && Number.isFinite(heading) ? heading : 0,
-        link: linkLabel(v.link?.state),
+        link: vehicleLink(v, nowMs),
       },
     })
   }
@@ -46,8 +49,9 @@ function byLink<T extends string | number>(values: Readonly<Record<LinkLabel, T>
   return ['match', ['get', 'link'], ...links.flatMap((l) => [l, values[l]]), fallback] as unknown as ExpressionSpecification
 }
 
-// The four simulated vehicles start on the same spot, so the labels go into
-// one of four corners by id and stay readable when the arrows coincide.
+// Vehicles can sit close together (the simulated ones start about 45 m
+// apart, a few pixels at low zoom), so the labels go into one of four corners
+// by id and stay readable when the arrows overlap.
 const corner = ['%', ['get', 'id'], 4] as ExpressionSpecification
 const idText = ['concat', ['case', ['<', ['get', 'id'], 10], '0', ''], ['to-string', ['get', 'id']]] as ExpressionSpecification
 
@@ -76,8 +80,19 @@ export function vehicleLayer(): SymbolLayerSpecification {
       'text-color': byLink(LINK_COLOR, LINK_COLOR.UNKNOWN),
       'text-halo-color': '#0a0a0a',
       'text-halo-width': 2,
+      'icon-opacity': vehicleOpacity(false),
+      'text-opacity': vehicleOpacity(false),
     },
   }
+}
+
+export const DIMMED_OPACITY = 0.35
+
+// Stale vehicles are dimmed; when the whole map is stale (the gateway
+// connection is down), every vehicle is.
+export function vehicleOpacity(allStale: boolean): ExpressionSpecification | number {
+  if (allStale) return DIMMED_OPACITY
+  return ['case', ['==', ['get', 'link'], 'STALE'], DIMMED_OPACITY, 1] as ExpressionSpecification
 }
 
 // Arrow icons, one per link state, drawn once at start-up. Size in CSS pixels.
